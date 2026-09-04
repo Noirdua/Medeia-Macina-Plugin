@@ -503,10 +503,10 @@ class AllDebridClient:
             self.base_url = self.BASE_URL_V41
 
             try:
-                response = self._request("magnet/status",
-                                         {
-                                             "id": str(magnet_id)
-                                         })
+                payload = {"id": str(magnet_id)}
+                if include_files:
+                    payload["files"] = "1"
+                response = self._request("magnet/status", payload)
             finally:
                 self.base_url = old_base
 

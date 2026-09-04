@@ -703,6 +703,7 @@ class AllDebrid(TablePluginMixin, Plugin):
         match = re.search(r"\bid\s*[=:]\s*(\d+)", normalized, flags=re.IGNORECASE)
         if match:
             filters["magnet_id"] = int(match.group(1))
+            filters["view"] = "files"
             normalized = re.sub(
                 r"\bid\s*[=:]\s*\d+", "", normalized, flags=re.IGNORECASE
             ).strip()
@@ -1445,8 +1446,14 @@ class AllDebrid(TablePluginMixin, Plugin):
             return []
 
         view = None
+        magnet_id_hint = None
         if isinstance(filters, dict):
             view = str(filters.get("view") or "").strip().lower() or None
+            magnet_id_hint = filters.get("magnet_id")
+        if magnet_id_hint is None:
+            magnet_id_hint = kwargs.get("magnet_id")
+        if magnet_id_hint is not None:
+            view = "files"
         view = view or "folders"
 
         try:
@@ -1481,7 +1488,7 @@ class AllDebrid(TablePluginMixin, Plugin):
             magnet_status: Dict[str,
                                 Any] = {}
             try:
-                magnet_status = client.magnet_status(magnet_id)
+                magnet_status = client.magnet_status(magnet_id, include_files=True)
             except Exception:
                 magnet_status = {}
 
@@ -1527,22 +1534,24 @@ class AllDebrid(TablePluginMixin, Plugin):
                     )
                 ]
 
+            file_tree: List[Any] = []
             try:
                 files_result = client.magnet_links([magnet_id])
                 magnet_files = (
-                    files_result.get(str(magnet_id),
-                                     {}) if isinstance(files_result,
-                                                       dict) else {}
+                    files_result.get(str(magnet_id), {})
+                    if isinstance(files_result, dict)
+                    else {}
                 )
-                file_tree = magnet_files.get("files",
-                                             []) if isinstance(magnet_files,
-                                                               dict) else []
+                if isinstance(magnet_files, dict):
+                    file_tree = magnet_files.get("files") or magnet_files.get("links") or []
             except Exception as exc:
                 log(
                     f"[alldebrid] Failed to list files for magnet {magnet_id}: {exc}",
                     file=sys.stderr,
                 )
                 file_tree = []
+            if not file_tree and isinstance(magnet_status, dict):
+                file_tree = magnet_status.get("files") or magnet_status.get("links") or []
 
             results: List[SearchResult] = []
             for file_node in self._flatten_files(file_tree):
