@@ -688,6 +688,9 @@ class AllDebrid(TablePluginMixin, Plugin):
     URL = ("magnet:", "alldebrid:magnet:", "alldebrid:", "alldebrid🧲", "alldebrid.com")
     URL_DOMAINS = ()
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
+    CONFIG_HELP = (
+        "Create an API key at https://alldebrid.com/apikeys (account API password / PIN) and paste it below.",
+    )
 
     def extract_query_arguments(self, query: str) -> Tuple[str, Dict[str, Any]]:
         normalized = str(query or "").strip()
@@ -733,7 +736,8 @@ class AllDebrid(TablePluginMixin, Plugin):
                 "label": "API Key",
                 "default": "",
                 "required": True,
-                "secret": True
+                "secret": True,
+                "help": "https://alldebrid.com/apikeys",
             }
         ]
 
