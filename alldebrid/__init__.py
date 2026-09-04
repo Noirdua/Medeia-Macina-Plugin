@@ -687,6 +687,9 @@ class AllDebrid(TablePluginMixin, Plugin):
     AUTO_STAGE_USE_SELECTION_ARGS = True
     URL = ("magnet:", "alldebrid:magnet:", "alldebrid:", "alldebrid🧲", "alldebrid.com")
     URL_DOMAINS = ()
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Search and download AllDebrid magnets and files."
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
     CONFIG_HELP = (
         "Create an API key at https://alldebrid.com/apikeys (account API password / PIN) and paste it below.",
