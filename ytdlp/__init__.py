@@ -575,6 +575,7 @@ class ytdlp(TablePluginMixin, Plugin):
     TABLE_AUTO_STAGES = {
         "ytdlp.formatlist": ["download-file"],
         "youtube": ["download-file"],
+        "bandcamp": ["download-file"],
     }
     AUTO_STAGE_USE_SELECTION_ARGS = True
 
@@ -886,6 +887,11 @@ class ytdlp(TablePluginMixin, Plugin):
                 ],
                 selection_args=(
                     ["-url", str(entry_url)] if entry_url else ["-url", str(url), "-item", str(idx)]
+                ),
+                selection_action=(
+                    ["download-file", "-url", str(entry_url)]
+                    if entry_url
+                    else ["download-file", "-url", str(url), "-item", str(idx)]
                 ),
                 media_kind="playlist-item",
                 playlist_index=idx,
