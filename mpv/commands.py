@@ -18,7 +18,7 @@ from plugins.mpv.mpv_ipc import MPV
 from SYS import pipeline as ctx
 from SYS.models import PipeObject
 
-from SYS.config import get_hydrus_access_key, get_hydrus_url, resolve_cookies_path
+from SYS.config import get_plugin_instance_value, resolve_cookies_path
 
 _NOTES_PREFETCH_INFLIGHT: set[str] = set()
 _NOTES_PREFETCH_LOCK = threading.Lock()
@@ -1210,7 +1210,7 @@ def _infer_store_from_playlist_item(
 def _build_hydrus_header(config: Dict[str, Any]) -> Optional[str]:
     """Return header string for Hydrus auth if configured."""
     try:
-        key = get_hydrus_access_key(config)
+        key = get_plugin_instance_value(config, "hydrusnetwork", "API")
     except Exception:
         key = None
     if not key:
@@ -1708,7 +1708,7 @@ def _queue_items(
     ytdl_opts = _build_ytdl_options(config, hydrus_header)
     hydrus_url = None
     try:
-        hydrus_url = get_hydrus_url(config) if config is not None else None
+                    hydrus_url = get_plugin_instance_value(config, "hydrusnetwork", "URL") if config is not None else None
     except Exception:
         hydrus_url = None
 
@@ -2542,7 +2542,7 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
                 hydrus_header = _build_hydrus_header(config or {})
                 hydrus_url = None
                 try:
-                    hydrus_url = get_hydrus_url(config) if config is not None else None
+        hydrus_url = get_plugin_instance_value(config, "hydrusnetwork", "URL") if config is not None else None
                 except Exception:
                     hydrus_url = None
 

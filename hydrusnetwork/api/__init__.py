@@ -1556,9 +1556,9 @@ def hydrus_export(args, _parser) -> int:
         hydrus_url = getattr(args, "hydrus_url", None)
         if not hydrus_url:
             try:
-                from SYS.config import load_config, get_hydrus_url
+                from SYS.config import load_config, get_plugin_instance_value
 
-                hydrus_url = get_hydrus_url(load_config())
+                hydrus_url = get_plugin_instance_value(load_config(), "hydrusnetwork", "URL")
             except Exception as exc:
                 hydrus_url = None
                 if os.environ.get("DOWNLOW_DEBUG"):
@@ -1868,7 +1868,7 @@ def is_available(config: dict[str,
         return _HYDRUS_AVAILABLE, _HYDRUS_UNAVAILABLE_REASON
 
     # Use new config helpers first, fallback to old method
-    from SYS.config import get_hydrus_url, get_hydrus_access_key
+    from SYS.config import get_plugin_instance_value
 
     # Collect candidate instances (prioritize 'home') from plugin/provider config.
     provider_block = (config or {}).get("plugin")
@@ -1903,8 +1903,8 @@ def is_available(config: dict[str,
     errors: list[str] = []
 
     for name in candidate_names:
-        url = (get_hydrus_url(config, name) or "").strip()
-        access_key = get_hydrus_access_key(config, name) or ""
+        url = (get_plugin_instance_value(config, "hydrusnetwork", "URL", name) or "").strip()
+        access_key = get_plugin_instance_value(config, "hydrusnetwork", "API", name) or ""
         if not url:
             errors.append(f"Hydrus URL not configured for instance '{name}'")
             continue
@@ -1979,17 +1979,17 @@ def get_client(config: dict[str, Any], instance_name: str | None = None) -> Hydr
     # availability probe reported unreachable (this keeps behavior resilient in mixed
     # network setups), but if no configured instance exists we'll raise below.
 
-    from SYS.config import get_hydrus_url, get_hydrus_access_key
+    from SYS.config import get_plugin_instance_value
 
     chosen_instance: str | None = None
 
     if instance_name:
         chosen_instance = str(instance_name).strip()
         # Validate existence of configuration
-        url_candidate = (get_hydrus_url(config, chosen_instance) or "").strip()
+        url_candidate = (get_plugin_instance_value(config, "hydrusnetwork", "URL", chosen_instance) or "").strip()
         if not url_candidate:
             raise RuntimeError(f"Hydrus URL is not configured for instance '{chosen_instance}'")
-        access_key_candidate = get_hydrus_access_key(config, chosen_instance) or ""
+        access_key_candidate = get_plugin_instance_value(config, "hydrusnetwork", "API", chosen_instance) or ""
         if not access_key_candidate:
             raise RuntimeError(f"Hydrus access key is not configured for instance '{chosen_instance}'")
     else:
@@ -2008,15 +2008,15 @@ def get_client(config: dict[str, Any], instance_name: str | None = None) -> Hydr
 
         # Try to pick the first instance with URL+API configured
         for name in candidate_names:
-            url_candidate = (get_hydrus_url(config, name) or "").strip()
-            access_key_candidate = get_hydrus_access_key(config, name) or ""
+            url_candidate = (get_plugin_instance_value(config, "hydrusnetwork", "URL", name) or "").strip()
+            access_key_candidate = get_plugin_instance_value(config, "hydrusnetwork", "API", name) or ""
             if url_candidate and access_key_candidate:
                 chosen_instance = name
                 break
 
         # If nothing suitable found in config, fall back to 'home' behavior (for backwards compatibility)
         if chosen_instance is None:
-            hydrus_url = (get_hydrus_url(config, "home") or "").strip()
+            hydrus_url = (get_plugin_instance_value(config, "hydrusnetwork", "URL", "home") or "").strip()
             if not hydrus_url:
                 raise RuntimeError(
                     "Hydrus URL is not configured (check config.conf store.hydrusnetwork.home.URL)"
@@ -2024,8 +2024,8 @@ def get_client(config: dict[str, Any], instance_name: str | None = None) -> Hydr
             chosen_instance = "home"
 
     # Now we have a chosen instance name; resolve its URL and access key (these validations are defensive)
-    hydrus_url = (get_hydrus_url(config, chosen_instance) or "").strip()
-    access_key = get_hydrus_access_key(config, chosen_instance) or ""
+    hydrus_url = (get_plugin_instance_value(config, "hydrusnetwork", "URL", chosen_instance) or "").strip()
+    access_key = get_plugin_instance_value(config, "hydrusnetwork", "API", chosen_instance) or ""
 
     if not hydrus_url:
         raise RuntimeError(f"Hydrus URL is not configured for instance '{chosen_instance}'")

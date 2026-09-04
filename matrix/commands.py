@@ -502,7 +502,7 @@ def _maybe_download_hydrus_file(item: Any,
     This avoids 401 from Hydrus when the URL is /get_files/file?hash=... without headers.
     """
     try:
-        from SYS.config import get_hydrus_access_key, get_hydrus_url
+        from SYS.config import get_plugin_instance_value
         from plugins.hydrusnetwork.api import HydrusNetwork as HydrusClient, download_hydrus_file
 
         # Prefer per-item Hydrus instance name when it matches a configured instance.
@@ -518,8 +518,8 @@ def _maybe_download_hydrus_file(item: Any,
         hydrus_url = None
         access_key = None
         for inst in instance_candidates:
-            access_key = (get_hydrus_access_key(config, inst) or "").strip() or None
-            hydrus_url = (get_hydrus_url(config, inst) or "").strip() or None
+            access_key = (get_plugin_instance_value(config, "hydrusnetwork", "API", inst) or "").strip() or None
+            hydrus_url = (get_plugin_instance_value(config, "hydrusnetwork", "URL", inst) or "").strip() or None
             if access_key and hydrus_url:
                 break
 

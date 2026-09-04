@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Optional, Sequence
+from urllib.parse import unquote, urlparse
 
 from SYS.cmdlet_spec import Cmdlet, CmdletArg
 from cmdlet._shared import should_show_help
-from plugins.alldebrid.api import unlock_link_cmdlet
+from plugins.alldebrid.api import convert_link_with_debrid
 
 CMDLET = Cmdlet(
     name="unlock-link",
@@ -31,15 +32,69 @@ CMDLET = Cmdlet(
 )
 
 
+def _extract_link(result: Any, args: Sequence[str]) -> Optional[str]:
+    for token in args or []:
+        text = str(token or "").strip()
+        if text.startswith(("http://", "https://")):
+            return text
+    if isinstance(result, dict):
+        for key in ("url", "source_url", "path", "target"):
+            value = result.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value.strip()
+    extra = getattr(result, "extra", None)
+    if isinstance(extra, dict):
+        for key in ("url", "source_url", "path"):
+            value = extra.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value.strip()
+    return None
+
+
+def _filename_from_url(url: str) -> str:
+    try:
+        name = unquote(urlparse(url).path.rsplit("/", 1)[-1])
+    except Exception:
+        name = ""
+    return name or url
+
+
 def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
     if should_show_help(args):
         return 0
-    from SYS import pipeline as ctx
+    from SYS.logger import log
+    from SYS.config import get_debrid_api_key
+    from cmdlet._shared import display_and_persist_items
+    import sys
 
-    code = unlock_link_cmdlet(result, args, config)
-    if code == 0:
-        ctx.emit(result)
-    return code
+    link = _extract_link(result, args)
+    if not link:
+        log("No valid URL provided", file=sys.stderr)
+        return 1
+    api_key = ""
+    try:
+        api_key = str(get_debrid_api_key(config, service="All-debrid") or "").strip()
+    except Exception:
+        api_key = ""
+    if not api_key:
+        log("AllDebrid API key not configured. Use .config to set it.", file=sys.stderr)
+        return 1
+    direct = convert_link_with_debrid(link, api_key)
+    if not direct:
+        log("Failed to unlock link", file=sys.stderr)
+        return 1
+    payload = {
+        "title": _filename_from_url(direct),
+        "url": direct,
+        "path": direct,
+        "plugin": "alldebrid",
+        "source_url": link,
+    }
+    if isinstance(result, dict):
+        result.update(payload)
+        payload = result
+    display_and_persist_items([payload], title="Unlocked")
+    return 0
 
 
 CMDLET.exec = _run

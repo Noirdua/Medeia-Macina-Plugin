@@ -911,7 +911,6 @@ def convert_link_with_debrid(link: str, api_key: str) -> Optional[str]:
         direct_link = client.unlock_link(link)
 
         if direct_link and direct_link != link:
-            debug(f"✓ Converted link: {link[:60]}... → {direct_link[:60]}...")
             return direct_link
 
         return None
@@ -1097,11 +1096,9 @@ def unlock_link_cmdlet(result: Any, args: Sequence[str], config: Dict[str, Any])
         return 1
 
     # Try to unlock the link
-    debug(f"Unlocking: {link}")
     direct_link = convert_link_with_debrid(link, api_key)
 
     if direct_link:
-        debug(f"✓ Direct link: {direct_link}")
 
         # Update result with direct link
         _add_direct_link_to_result(result, direct_link, link)
