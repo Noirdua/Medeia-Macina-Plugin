@@ -7,12 +7,11 @@ from typing import Any, Dict, List, Optional
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import log, debug, debug_panel
 
-from plugins.playwright import PlaywrightTool
-
-
 class Bandcamp(Plugin):
     """Search provider for Bandcamp."""
 
+    PLUGIN_NAME = "bandcamp"
+    PLUGIN_DEPENDS = ("playwright",)
     SUPPORTED_CMDLETS = frozenset({"search-file"})
     TABLE_AUTO_STAGES = {
         "bandcamp": ["download-file"],
@@ -236,6 +235,8 @@ class Bandcamp(Plugin):
         artist_url = chosen[0].get("url") or ""
 
         try:
+            from plugins.playwright import PlaywrightTool
+
             tool = PlaywrightTool({})
             tool.require()
             with tool.open_page(headless=True) as page:
@@ -292,6 +293,8 @@ class Bandcamp(Plugin):
         **kwargs: Any,
     ) -> List[SearchResult]:
         try:
+            from plugins.playwright import PlaywrightTool
+
             tool = PlaywrightTool({})
             tool.require()
             with tool.open_page(headless=True) as page:
