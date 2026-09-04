@@ -683,8 +683,8 @@ class AllDebrid(TablePluginMixin, Plugin):
     6. Provider fetches files, unlocks locked URLs, and downloads
     """
     # Magnet URIs should be routed through this provider.
-    TABLE_AUTO_STAGES = {"alldebrid": ["download-file"]}
-    AUTO_STAGE_USE_SELECTION_ARGS = True
+    TABLE_AUTO_STAGES = {}
+    AUTO_STAGE_USE_SELECTION_ARGS = False
     URL = ("magnet:", "alldebrid:magnet:", "alldebrid:", "alldebrid🧲", "alldebrid.com")
     URL_DOMAINS = ()
     PLUGIN_VERSION = "1.0.0"
@@ -1576,8 +1576,7 @@ class AllDebrid(TablePluginMixin, Plugin):
                     "plugin": "alldebrid",
                     "plugin_view": "files",
                     # Selection metadata for table system
-                    "_selection_args": ["-url", f"{_ALD_MAGNET_PREFIX}{magnet_id}"],
-                    "_selection_action": ["download-file", "-plugin", "alldebrid", "-url", f"{_ALD_MAGNET_PREFIX}{magnet_id}"],
+                    "_selection_args": ["-url", file_url],
                 }
 
                 results.append(
@@ -1684,15 +1683,25 @@ class AllDebrid(TablePluginMixin, Plugin):
                         ("Ready",
                          "yes" if ready else "no"),
                     ],
+                    selection_action=[
+                        "search-file",
+                        "-plugin",
+                        "alldebrid",
+                        f"id={magnet_id}",
+                    ],
                     full_metadata={
                         "magnet": magnet,
                         "magnet_id": magnet_id,
                         "plugin": "alldebrid",
                         "plugin_view": "folders",
                         "magnet_name": magnet_name,
-                        # Selection metadata: allow @N expansion to drive downloads directly
                         "_selection_args": ["-url", f"{_ALD_MAGNET_PREFIX}{magnet_id}"],
-                        "_selection_action": ["download-file", "-plugin", "alldebrid", "-url", f"{_ALD_MAGNET_PREFIX}{magnet_id}"],
+                        "_selection_action": [
+                            "search-file",
+                            "-plugin",
+                            "alldebrid",
+                            f"id={magnet_id}",
+                        ],
                     },
                 )
             )
@@ -1778,7 +1787,7 @@ class AllDebrid(TablePluginMixin, Plugin):
         try:
             files = self.search("*", limit=200, filters={"view": "files", "magnet_id": magnet_id})
         except Exception as exc:
-            print(f"alldebrid selector failed: {exc}\n")
+            log(f"alldebrid selector failed: {exc}", file=sys.stderr)
             return True
 
         try:
@@ -1793,7 +1802,7 @@ class AllDebrid(TablePluginMixin, Plugin):
             table.set_table_metadata({"plugin": "alldebrid", "view": "files", "magnet_id": magnet_id})
         except Exception:
             pass
-        table.set_source_command("download-file", ["-plugin", "alldebrid"])
+        table.set_source_command("search-file", ["-plugin", "alldebrid", f"id={magnet_id}"])
 
         results_payload: List[Dict[str, Any]] = []
         for r in files or []:
