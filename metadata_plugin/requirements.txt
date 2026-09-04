@@ -1,0 +1,3 @@
+musicbrainzngs>=0.7.0
+imdbinfo>=0.1.10
+lxml>=4.9.0

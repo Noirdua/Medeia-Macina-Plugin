@@ -525,6 +525,7 @@ class ytdlp(TablePluginMixin, Plugin):
     """yt-dlp-backed search and direct download plugin."""
 
     PLUGIN_NAME = "ytdlp"
+    PLUGIN_SYSTEM_REQUIRES = ("deno",)
     PLUGIN_ALIASES = ("youtube",)
     SEARCH_QUERY_KEYS = ("search", "q")
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})

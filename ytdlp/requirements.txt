@@ -1,0 +1,4 @@
+yt-dlp[default]>=2023.11.0
+yt-dlp-ejs
+pycryptodome>=3.18.0
+# Deno is a system runtime (not pip). Installed by .plugin -add ytdlp via PLUGIN_SYSTEM_REQUIRES.
