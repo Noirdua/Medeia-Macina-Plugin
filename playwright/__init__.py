@@ -1,11 +1,10 @@
-"""Playwright support module under the plugin namespace.
-
-This package provides shared browser automation defaults/helpers for cmdlets and
-plugins. It is intentionally lightweight at import time so plugin discovery can
-import `plugins.playwright` even when Playwright itself is not installed.
-"""
+"""Playwright plugin: browser automation and file -screenshot."""
 
 from __future__ import annotations
+
+from typing import Any, Dict, List
+
+from PluginCore.base import Plugin
 
 from .runtime import USER_AGENT
 
@@ -16,6 +15,7 @@ __all__ = [
     "PlaywrightDefaults",
     "PlaywrightDownloadResult",
     "config_schema",
+    "Playwright",
 ]
 
 _MODULE_ATTRS = {
@@ -37,3 +37,33 @@ def __getattr__(name: str) -> object:
     obj = getattr(mod, name)
     globals()[name] = obj
     return obj
+
+
+class Playwright(Plugin):
+    PLUGIN_NAME = "playwright"
+    SUPPORTED_CMDLETS = frozenset({"screen-shot"})
+    FILE_ACTIONS: Dict[str, Dict[str, Any]] = {
+        "screenshot": {
+            "flags": (
+                "-screenshot",
+                "--screenshot",
+                "-screen-shot",
+                "--screen-shot",
+                "-shot",
+                "--shot",
+            ),
+            "module": "plugins.playwright.screenshot",
+            "cmdlet": "screen-shot",
+            "description": "Capture a screenshot",
+            "alias": "shot",
+        }
+    }
+
+    def validate(self) -> bool:
+        return True
+
+    @classmethod
+    def config_schema(cls) -> List[Dict[str, Any]]:
+        from .runtime import config_schema as runtime_schema
+
+        return list(runtime_schema() or [])
