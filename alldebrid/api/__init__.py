@@ -1114,39 +1114,4 @@ def unlock_link_cmdlet(result: Any, args: Sequence[str], config: Dict[str, Any])
         return 1
 
 
-# ============================================================================
-# Cmdlet Registration
-# ============================================================================
 
-
-def _register_unlock_link():
-    """Register unlock-link command with cmdlet registry if available."""
-    try:
-        from cmdlet import register
-
-        @register(["unlock-link"])
-        def unlock_link_wrapper(
-            result: Any,
-            args: Sequence[str],
-            config: Dict[str,
-                         Any]
-        ) -> int:
-            """Wrapper to make unlock_link_cmdlet available as cmdlet."""
-            from SYS import pipeline as ctx
-
-            ret_code = unlock_link_cmdlet(result, args, config)
-
-            # If successful, emit the result
-            if ret_code == 0:
-                ctx.emit(result)
-
-            return ret_code
-
-        return unlock_link_wrapper
-    except ImportError:
-        # If cmdlet module not available, just return None
-        return None
-
-
-# Register when module is imported
-_unlock_link_registration = _register_unlock_link()

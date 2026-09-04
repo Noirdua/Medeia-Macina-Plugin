@@ -25,7 +25,13 @@ class Hello(Plugin):
     """
 
     PLUGIN_NAME = "hello"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Minimal example plugin for authors."
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
+    CONFIG_HELP = (
+        "No credentials required. Try: file -search -plugin hello demo",
+    )
     URL = ("hello:",)
     URL_DOMAINS = ()
 
