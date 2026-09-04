@@ -919,6 +919,7 @@ class HydrusNetwork(Plugin):
     def __getattr__(self, name: str) -> Any:
         if name in {
             "add_file",
+            "delete_file",
             "get_file",
             "get_metadata",
             "get_tag",
