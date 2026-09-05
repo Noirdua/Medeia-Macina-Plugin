@@ -1,6 +1,5 @@
-*.cpython
-_pycache_
-*/_pycache_
-.cpython-313*
-*.cpython-313*
-./*.cpython-313*
+__pycache__/
+*.py[cod]
+*$py.class
+*.cpython*
+**/*.cpython-*

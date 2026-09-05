@@ -1708,7 +1708,7 @@ def _queue_items(
     ytdl_opts = _build_ytdl_options(config, hydrus_header)
     hydrus_url = None
     try:
-                    hydrus_url = get_plugin_instance_value(config, "hydrusnetwork", "URL") if config is not None else None
+        hydrus_url = get_plugin_instance_value(config, "hydrusnetwork", "URL") if config is not None else None
     except Exception:
         hydrus_url = None
 
@@ -2542,7 +2542,7 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
                 hydrus_header = _build_hydrus_header(config or {})
                 hydrus_url = None
                 try:
-        hydrus_url = get_plugin_instance_value(config, "hydrusnetwork", "URL") if config is not None else None
+                    hydrus_url = get_plugin_instance_value(config, "hydrusnetwork", "URL") if config is not None else None
                 except Exception:
                     hydrus_url = None
 

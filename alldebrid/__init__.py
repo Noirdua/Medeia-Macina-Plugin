@@ -817,9 +817,27 @@ class AllDebrid(TablePluginMixin, Plugin):
 
         cfg = self.config if isinstance(self.config, dict) else {}
         try:
-            _client, magnet_id, magnet_info = prepare_magnet(spec, cfg)
+            client, magnet_id, magnet_info = prepare_magnet(spec, cfg)
             if magnet_id is None:
                 return False, None
+            ready = bool(magnet_info.get("ready")) or magnet_info.get("statusCode") == 4
+            if ready and client is not None:
+                rows = self._magnet_file_results(
+                    client,
+                    int(magnet_id),
+                    magnet_info if isinstance(magnet_info, dict) else {},
+                    limit=200,
+                )
+                items: List[Any] = []
+                for row in rows:
+                    to_dict = getattr(row, "to_dict", None)
+                    items.append(to_dict() if callable(to_dict) else row)
+                if items:
+                    return True, {
+                        "action": "emit_items",
+                        "items": items,
+                        "exit_code": 0,
+                    }
             return True, {
                 "action": "emit_items",
                 "items": [
@@ -1294,6 +1312,85 @@ class AllDebrid(TablePluginMixin, Plugin):
                 enriched = dict(node)
                 enriched["_relpath"] = relpath
                 yield enriched
+
+    @classmethod
+    def _magnet_file_results(
+        cls,
+        client: Any,
+        magnet_id: int,
+        magnet_status: Optional[Dict[str, Any]] = None,
+        *,
+        limit: int = 200,
+        needle: str = "",
+    ) -> List[SearchResult]:
+        status = magnet_status if isinstance(magnet_status, dict) else {}
+        magnet_name = str(
+            status.get("filename") or status.get("name") or status.get("hash") or f"magnet-{magnet_id}"
+        )
+        file_tree: List[Any] = []
+        try:
+            files_result = client.magnet_links([magnet_id])
+            magnet_files = (
+                files_result.get(str(magnet_id), {}) if isinstance(files_result, dict) else {}
+            )
+            if isinstance(magnet_files, dict):
+                file_tree = magnet_files.get("files") or magnet_files.get("links") or []
+        except Exception as exc:
+            log(f"[alldebrid] Failed to list files for magnet {magnet_id}: {exc}", file=sys.stderr)
+            file_tree = []
+        if not file_tree:
+            file_tree = status.get("files") or status.get("links") or []
+
+        results: List[SearchResult] = []
+        needle_l = str(needle or "").strip().lower()
+        for file_node in cls._flatten_files(file_tree):
+            file_name = str(file_node.get("n") or file_node.get("name") or "").strip()
+            file_url = str(file_node.get("l") or file_node.get("link") or "").strip()
+            relpath = str(file_node.get("_relpath") or file_name or "").strip()
+            file_size = file_node.get("s") or file_node.get("size")
+            if not file_name:
+                continue
+            if needle_l and needle_l not in file_name.lower():
+                continue
+            size_bytes: Optional[int] = None
+            try:
+                if isinstance(file_size, (int, float)):
+                    size_bytes = int(file_size)
+                elif isinstance(file_size, str) and file_size.isdigit():
+                    size_bytes = int(file_size)
+            except Exception:
+                size_bytes = None
+            path = file_url or f"{_ALD_MAGNET_PREFIX}{magnet_id}"
+            results.append(
+                SearchResult(
+                    table="alldebrid",
+                    title=file_name,
+                    path=path,
+                    detail=magnet_name,
+                    annotations=["file"],
+                    media_kind="file",
+                    size_bytes=size_bytes,
+                    tag={"alldebrid", "file", str(magnet_id)},
+                    columns=[
+                        ("File", file_name),
+                        ("Folder", magnet_name),
+                        ("ID", str(magnet_id)),
+                    ],
+                    full_metadata={
+                        "magnet": status,
+                        "magnet_id": magnet_id,
+                        "magnet_name": magnet_name,
+                        "relpath": relpath,
+                        "file": file_node,
+                        "plugin": "alldebrid",
+                        "plugin_view": "files",
+                        "_selection_args": ["-url", path] if file_url else ["-url", f"{_ALD_MAGNET_PREFIX}{magnet_id}"],
+                    },
+                )
+            )
+            if len(results) >= max(1, limit):
+                break
+        return results
 
     def _download_magnet_by_id(
         self,
