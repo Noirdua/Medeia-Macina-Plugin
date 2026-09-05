@@ -1879,9 +1879,9 @@ local function _try_direct_loadfile(url, force)
     -- - success=true, loaded=false: URL not suitable for direct load (when not forced)
     -- - success=false: loadfile command failed
     force = force and true or false
-    if not force and not _url_can_direct_load(url) then
-        _lua_log('_try_direct_loadfile: URL not suitable for direct load: ' .. url)
-        return true, false  -- Not suitable, but not an error
+    if not force or not _url_can_direct_load(url) then
+        _lua_log('_try_direct_loadfile: skip loadfile force=' .. tostring(force) .. ' url=' .. tostring(url))
+        return true, false
     end
     _lua_log('_try_direct_loadfile: attempting loadfile for ' .. url)
     local ok_load = pcall(mp.commandv, 'loadfile', url, 'replace')
