@@ -6694,9 +6694,10 @@ mp.register_script_message('medios-load-url-event', function(json)
     -- take time to resolve, but the modal should not stay stuck on screen.
     close_menu()
 
-    -- First, always try direct loadfile. This is the fastest path.
-    local can_direct = _url_can_direct_load(url)
-    local prefer_direct = can_direct or _is_ytdlp_url(url)
+    -- Direct loadfile is only for real media URLs. ytdlp sites (YouTube, etc.)
+    -- must go through the helper or ffmpeg hits 403.
+    local can_direct = _url_can_direct_load(url) and not _is_ytdlp_url(url)
+    local prefer_direct = can_direct
     _lua_log('[LOAD-URL] Checking if URL can be loaded directly: ' .. tostring(can_direct))
     _lua_log('[LOAD-URL] Prefer direct load: ' .. tostring(prefer_direct))
 
