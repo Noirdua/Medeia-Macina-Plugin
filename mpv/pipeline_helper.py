@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-03-23.1"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-04.1"
 
 import argparse
 import json
@@ -1985,7 +1985,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if use_shared_ipc_client:
         _append_helper_log(
-            "[helper] Windows single-client IPC mode enabled; auxiliary heartbeat/poll disabled"
+            "[helper] Windows single-client IPC mode; polling request property on shared connection"
         )
     else:
         _start_ready_heartbeat(
@@ -2103,7 +2103,15 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _mark_ipc_alive("main-idle")
                 # Keep READY fresh even when idle (Lua may clear it on timeouts).
                 _touch_ready()
-                time.sleep(0.02)
+                if use_shared_ipc_client:
+                    try:
+                        resp = client.send_command(["get_property", REQUEST_PROP])
+                        if resp and resp.get("error") == "success" and resp.get("data"):
+                            _process_request(resp.get("data"), "poll")
+                    except Exception:
+                        pass
+                else:
+                    time.sleep(0.02)
                 continue
 
             _mark_ipc_alive("main-read")

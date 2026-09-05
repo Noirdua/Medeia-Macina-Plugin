@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-local MEDEIA_LUA_VERSION = '2026-08-02.3'
+    local MEDEIA_LUA_VERSION = '2026-09-04.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
 pcall(mp.set_property, 'user-data/medeia-lua-version', MEDEIA_LUA_VERSION)
@@ -6693,6 +6693,25 @@ mp.register_script_message('medios-load-url-event', function(json)
     -- Close the URL prompt immediately once the user submits. Playback may still
     -- take time to resolve, but the modal should not stay stuck on screen.
     close_menu()
+
+    -- YouTube and other yt-dlp sites must use mpv's ytdl-hook, not ffmpeg
+    -- loadfile and not the Windows helper (named-pipe observe can stall).
+    if _is_ytdlp_url(url) then
+        _lua_log('[LOAD-URL] yt-dlp URL; loadfile via mpv ytdl-hook')
+        pcall(mp.set_property, 'ytdl', 'yes')
+        local ok_load = pcall(mp.commandv, 'loadfile', url, 'replace')
+        _lua_log('[LOAD-URL] ytdl loadfile ok=' .. tostring(ok_load))
+        if ok_load then
+            _log_all('INFO', 'Load URL via ytdl-hook')
+            mp.osd_message('Loading URL...', 2)
+            mp.add_timeout(0.5, function()
+                M._prefetch_formats_for_url(url)
+                M._schedule_uosc_cursor_resync('file-loaded-web')
+            end)
+            return
+        end
+        _lua_log('[LOAD-URL] ytdl loadfile failed; falling back to helper')
+    end
 
     -- Direct loadfile is only for real media URLs. ytdlp sites (YouTube, etc.)
     -- must go through the helper or ffmpeg hits 403.
