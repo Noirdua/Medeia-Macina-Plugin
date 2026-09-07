@@ -4221,9 +4221,7 @@ function M._build_web_ytdl_raw_options()
             extra[#extra + 1] = 'cookies=' .. cookie
         end
     end
-    if not lower:find('extractor%-args=', 1) then
-        extra[#extra + 1] = 'extractor-args=youtube:player_client=web'
-    end
+
 
     if #extra == 0 then
         return raw ~= '' and raw or nil

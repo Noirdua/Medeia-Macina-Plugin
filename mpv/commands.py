@@ -1977,10 +1977,12 @@ def _queue_items(
                 if ytdlp_play.get("ytdl"):
                     load_options["ytdl"] = "yes"
                     cookiefile = str(ytdlp_play.get("cookiefile") or "").replace("\\", "/").strip()
-                    raw_opts = ["extractor-args=youtube:player_client=web"]
+                    raw_opts = []
                     if cookiefile:
-                        raw_opts.insert(0, f"cookies={cookiefile}")
-                    load_options["ytdl-raw-options"] = ",".join(raw_opts)
+                        raw_opts.append(f"cookies={cookiefile}")
+                    if raw_opts:
+                        load_options["ytdl-raw-options"] = ",".join(raw_opts)
+                    load_options["ytdl-format"] = "bv*+ba/b"
                     ytdl_path = str(ytdlp_play.get("ytdl_path") or "").strip()
                     if ytdl_path:
                         _send_ipc_command(

@@ -44,9 +44,6 @@ _BROWSER_UA = (
 def _yt_dlp_executable() -> str:
     from shutil import which
 
-    found = which("yt-dlp")
-    if found:
-        return str(found)
     name = "yt-dlp.exe" if os.name == "nt" else "yt-dlp"
     roots = [Path(sys.executable).resolve().parent]
     try:
@@ -58,6 +55,9 @@ def _yt_dlp_executable() -> str:
         candidate = folder / name
         if candidate.is_file():
             return str(candidate)
+    found = which("yt-dlp")
+    if found:
+        return str(found)
     return ""
 
 

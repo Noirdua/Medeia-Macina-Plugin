@@ -2198,7 +2198,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             "write-subs=",
             "write-auto-subs=",
             "sub-langs=[en.*,en,-live_chat]",
-            "extractor-args=youtube:player_client=web",
         ]
         if cookie is not None:
             raw_parts.append("cookies=" + str(cookie).replace("\\", "/"))
@@ -2209,7 +2208,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             _append_helper_log(f"[helper] ytdl-path={ytdl_bin}")
         _send_helper_command(["set_property", "ytdl-raw-options", raw], "ytdl-raw")
         _send_helper_command(["set_property", "options/ytdl-raw-options", raw], "ytdl-raw-opt")
-        _append_helper_log("[helper] pinned ytdl-raw-options (web client + cookies)")
+        _send_helper_command(["set_property", "ytdl-format", "bv*+ba/b"], "ytdl-fmt")
+        _append_helper_log("[helper] pinned ytdl-path/cookies")
     except Exception as exc:
         _append_helper_log(
             f"[helper] failed to pin ytdl-path/cookies: {type(exc).__name__}: {exc}"
