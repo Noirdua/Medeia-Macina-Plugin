@@ -5,6 +5,7 @@ local msg = require 'mp.msg'
 local M = {}
 
     local MEDEIA_LUA_VERSION = '2026-09-04.1'
+local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
 pcall(mp.set_property, 'user-data/medeia-lua-version', MEDEIA_LUA_VERSION)
@@ -1261,13 +1262,33 @@ function M._normalize_mpv_user_data_text(value)
     return trim(text)
 end
 
+local function _parse_helper_version(text)
+    local y, m, d, rev = tostring(text or ''):match('^(%d%d%d%d)%-(%d%d)%-(%d%d)%.?(%d*)$')
+    if not y then
+        return nil, nil
+    end
+    return (tonumber(y) * 10000 + tonumber(m) * 100 + tonumber(d)), (tonumber(rev) or 0)
+end
+
+local function _helper_version_ok(text)
+    local got_stamp, got_rev = _parse_helper_version(text)
+    local need_stamp, need_rev = _parse_helper_version(MEDEIA_HELPER_MIN_VERSION)
+    if not got_stamp or not need_stamp then
+        return tostring(text or '') == MEDEIA_HELPER_MIN_VERSION
+    end
+    if got_stamp ~= need_stamp then
+        return got_stamp > need_stamp
+    end
+    return got_rev >= need_rev
+end
+
 local function _is_pipeline_helper_ready()
     local helper_version = mp.get_property('user-data/medeia-pipeline-helper-version')
     if helper_version == nil or helper_version == '' then
         helper_version = mp.get_property_native('user-data/medeia-pipeline-helper-version')
     end
     helper_version = M._normalize_mpv_user_data_text(helper_version)
-    if helper_version ~= '' and helper_version ~= '2026-03-23.1' then
+    if helper_version ~= '' and not _helper_version_ok(helper_version) then
         return false
     end
 
@@ -1311,7 +1332,7 @@ local function _is_pipeline_helper_ready()
 
     -- Fall back only for non-timestamp values so stale helper timestamps from a
     -- previous session do not look fresh right after Lua reload.
-    if helper_version ~= '2026-03-23.1' then
+    if helper_version ~= '' and not _helper_version_ok(helper_version) then
         return false
     end
     if _helper_ready_last_seen_ts > 0 and (now - _helper_ready_last_seen_ts) <= HELPER_READY_STALE_SECONDS then
@@ -1347,7 +1368,7 @@ local function _helper_ready_diagnostics()
         .. ' raw_ready=' .. tostring(raw_ready or '')
         .. ' helper_version=' .. tostring(helper_version or '')
         .. ' raw_helper_version=' .. tostring(raw_helper_version or '')
-        .. ' required_version=2026-03-23.1'
+        .. ' required_version=' .. MEDEIA_HELPER_MIN_VERSION
         .. ' heartbeat_age=' .. tostring(heartbeat_age)
         .. ' last_value=' .. tostring(_helper_ready_last_value or '')
         .. ' last_seen_age=' .. tostring(age)
