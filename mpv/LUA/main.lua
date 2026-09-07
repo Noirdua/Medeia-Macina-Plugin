@@ -2263,6 +2263,10 @@ function M._prepare_ytdl_format_for_web_load(url, reason)
         )
         return false
     end
+    if first_value and (first_value:find('bv*', 1, true) or first_value:find('+ba', 1, true) or first_value:find('bestvideo', 1, true)) then
+        _lua_log('ytdl-format: keeping playback selector=' .. tostring(first_value))
+        return false
+    end
 
     if explicit_reload_url ~= '' and first_value and first_value ~= '' then
         M._ytdl_download_format_fallbacks[explicit_reload_url] = first_value

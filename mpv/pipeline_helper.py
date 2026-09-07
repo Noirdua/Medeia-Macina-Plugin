@@ -2198,6 +2198,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             "write-subs=",
             "write-auto-subs=",
             "sub-langs=[en.*,en,-live_chat]",
+            "extractor-args=youtube:player_client=tv,web",
         ]
         if cookie is not None:
             raw_parts.append("cookies=" + str(cookie).replace("\\", "/"))
