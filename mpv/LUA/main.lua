@@ -6883,6 +6883,83 @@ function M.show_menu()
     end
 end
 
+local _splash_path_cached = nil
+
+function M._resolve_splash_path()
+    if _splash_path_cached and _splash_path_cached ~= '' then
+        return _splash_path_cached
+    end
+    local candidates = {}
+    local source = _get_lua_source_path()
+    local lua_dir = source:match('(.*)[/\\]') or ''
+    local plugin_dir = lua_dir:match('(.*)[/\\]') or lua_dir
+    if plugin_dir ~= '' then
+        candidates[#candidates + 1] = utils.join_path(plugin_dir, 'splash.png')
+    end
+    if lua_dir ~= '' then
+        candidates[#candidates + 1] = utils.join_path(lua_dir, 'splash.png')
+    end
+    local repo_root = _detect_repo_root()
+    if repo_root ~= '' then
+        candidates[#candidates + 1] = utils.join_path(repo_root, 'plugins/mpv/splash.png')
+    end
+    for _, path in ipairs(candidates) do
+        if _path_exists(path) then
+            _splash_path_cached = path
+            return path
+        end
+    end
+    _splash_path_cached = ''
+    return ''
+end
+
+function M._path_is_splash(path)
+    local splash = trim(tostring(M._resolve_splash_path() or '')):lower():gsub('\\', '/')
+    local current = trim(tostring(path or '')):lower():gsub('\\', '/')
+    if splash == '' or current == '' then
+        return false
+    end
+    return current == splash or current:sub(-#splash) == splash
+end
+
+function M._show_splash_background()
+    local splash = M._resolve_splash_path()
+    if splash == '' then
+        _lua_log('splash: splash.png not found')
+        return
+    end
+    if not mp.get_property_bool('idle-active') then
+        return
+    end
+    if M._path_is_splash(mp.get_property('path')) then
+        return
+    end
+    _lua_log('splash: loading ' .. splash)
+    pcall(mp.commandv, 'loadfile', splash, 'replace')
+end
+
+function M._install_splash_background()
+    local splash = M._resolve_splash_path()
+    if splash == '' then
+        _lua_log('splash: splash.png not found')
+        return
+    end
+    _lua_log('splash: using ' .. splash)
+    mp.observe_property('idle-active', 'bool', function(_, idle)
+        if idle then
+            mp.add_timeout(0.05, M._show_splash_background)
+        end
+    end)
+    mp.register_event('file-loaded', function()
+        if M._path_is_splash(mp.get_property('path')) then
+            pcall(mp.set_property, 'pause', 'yes')
+        end
+    end)
+    if mp.get_property_bool('idle-active') then
+        M._show_splash_background()
+    end
+end
+
 -- Keybindings with logging wrappers
 mp.add_key_binding("m", "medios-menu", function()
     _lua_log('[KEY] m pressed')
@@ -6938,6 +7015,8 @@ mp.add_timeout(0, function()
     if not ok_lyric then
         _lua_log('lyric-helper auto-start raised: ' .. tostring(lyric_err))
     end
+
+    pcall(M._install_splash_background)
     
     -- Force-claim mbtn_right so the Medios menu fires reliably regardless of
     -- whether uosc has a cursor zone active at the click position.
