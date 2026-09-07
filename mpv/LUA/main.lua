@@ -6977,6 +6977,26 @@ local function _track_has_splash()
     return false
 end
 
+function M._prefer_real_video_track()
+    local path = mp.get_property('path') or ''
+    if path == '' or M._path_is_splash(path) then
+        return false
+    end
+    local tracks = mp.get_property_native('track-list') or {}
+    if type(tracks) ~= 'table' then
+        return false
+    end
+    for _, track in ipairs(tracks) do
+        if type(track) == 'table' and track.type == 'video' and track.id and not track.albumart and not track.image then
+            pcall(mp.set_property, 'vid', track.id)
+            pcall(mp.set_property, 'pause', 'no')
+            _lua_log('splash: selected real video track id=' .. tostring(track.id))
+            return true
+        end
+    end
+    return false
+end
+
 function M._show_splash_background()
     local splash = M._resolve_splash_path()
     if splash == '' then
@@ -6990,6 +7010,9 @@ function M._show_splash_background()
         return
     end
     _drop_splash_playlist_entries()
+    if M._prefer_real_video_track() then
+        return
+    end
     if mp.get_property_native('current-tracks/video') ~= nil then
         return
     end
@@ -7007,7 +7030,12 @@ function M._show_splash_background()
         return
     end
     if path ~= '' and not _track_has_splash() then
-        if _is_http_url(path) and (_is_ytdlp_url(path) or path:lower():find('googlevideo.com', 1, true)) then
+        local lower = path:lower()
+        if _is_http_url(path) and (
+            _is_ytdlp_url(path)
+            or lower:find('googlevideo.com', 1, true)
+            or lower:find('manifest.', 1, true)
+        ) then
             return
         end
         _lua_log('splash: video-add for audio without cover')
@@ -7021,17 +7049,18 @@ function M._install_splash_background()
         _lua_log('splash: splash.png not found')
         return
     end
-    local cover = splash:gsub('\\', '/')
-    pcall(mp.set_property, 'cover-art-files', cover)
     pcall(mp.set_property, 'cover-art-auto', 'no')
     pcall(mp.set_property, 'audio-display', 'embedded-first')
-    _lua_log('splash: cover-art-files=' .. cover)
+    _lua_log('splash: idle image only (no cover-art-files)')
     local function sync()
         mp.add_timeout(0.05, M._show_splash_background)
     end
     mp.observe_property('idle-active', 'bool', sync)
     mp.observe_property('current-tracks/video', 'native', sync)
     mp.observe_property('path', 'string', sync)
+    mp.register_event('file-loaded', function()
+        M._prefer_real_video_track()
+    end)
     M._show_splash_background()
 end
 

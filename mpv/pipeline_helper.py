@@ -530,6 +530,8 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     audio_url = str(payload.get("audio_url") or "").strip()
     if audio_url:
         opts["audio-file"] = audio_url
+    _helper_send(["set_property", "cover-art-files", ""], "clear-cover")
+    _helper_send(["set_property", "pause", "no"], "unpause")
     ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
     _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} title={title}")
     return ok

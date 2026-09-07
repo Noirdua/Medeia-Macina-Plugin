@@ -806,7 +806,7 @@ class ytdlp(TablePluginMixin, Plugin):
                     "skip_download": True,
                     "noprogress": True,
                     "noplaylist": True,
-                    "format": "bv*+ba/b",
+                    "format": "bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b",
                     "socket_timeout": min(15, max(1, timeout_seconds)),
                     "retries": 2,
                     "user_agent": headers.get("User-Agent"),
