@@ -6922,20 +6922,93 @@ function M._path_is_splash(path)
     return current == splash or current:sub(-#splash) == splash
 end
 
+local SPLASH_OVERLAY_ID = 97
+local _splash_overlay_on = false
+local _splash_overlay_key = ''
+
+local function _splash_osd_size()
+    local w, h = mp.get_osd_size()
+    w = math.floor((tonumber(w) or 0) / 2) * 2
+    h = math.floor((tonumber(h) or 0) / 2) * 2
+    return w, h
+end
+
+local function _splash_bgra_path(w, h)
+    local tmp = os.getenv('TEMP') or os.getenv('TMP') or '/tmp'
+    tmp = tostring(tmp):gsub('\\', '/')
+    return string.format('%s/medeia-splash-%dx%d.bgra', tmp, w, h)
+end
+
+local function _write_splash_bgra(src, dest, w, h)
+    if _path_exists(dest) then
+        return true
+    end
+    local vf = string.format(
+        'scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d',
+        w, h, w, h
+    )
+    local res = mp.command_native({
+        name = 'subprocess',
+        args = {
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+            '-i', src, '-an', '-vf', vf, '-frames:v', '1',
+            '-f', 'rawvideo', '-pix_fmt', 'bgra', dest,
+        },
+        playback_only = false,
+        capture_stdout = true,
+        capture_stderr = true,
+    })
+    return type(res) == 'table' and tonumber(res.status) == 0 and _path_exists(dest)
+end
+
+local function _hide_splash_overlay()
+    if not _splash_overlay_on then
+        return
+    end
+    pcall(mp.commandv, 'overlay-remove', SPLASH_OVERLAY_ID)
+    _splash_overlay_on = false
+    _splash_overlay_key = ''
+end
+
+local function _needs_splash_overlay()
+    if mp.get_property_bool('idle-active') then
+        return true
+    end
+    local vid = mp.get_property_native('current-tracks/video')
+    return vid == nil
+end
+
 function M._show_splash_background()
+    if not _needs_splash_overlay() then
+        _hide_splash_overlay()
+        return
+    end
     local splash = M._resolve_splash_path()
     if splash == '' then
-        _lua_log('splash: splash.png not found')
         return
     end
-    if not mp.get_property_bool('idle-active') then
+    local w, h = _splash_osd_size()
+    if w < 2 or h < 2 then
         return
     end
-    if M._path_is_splash(mp.get_property('path')) then
+    local key = w .. 'x' .. h
+    if _splash_overlay_on and _splash_overlay_key == key then
         return
     end
-    _lua_log('splash: loading ' .. splash)
-    pcall(mp.commandv, 'loadfile', splash, 'replace')
+    local dest = _splash_bgra_path(w, h)
+    if not _write_splash_bgra(splash, dest, w, h) then
+        _lua_log('splash: overlay encode failed (need ffmpeg on PATH)')
+        return
+    end
+    _hide_splash_overlay()
+    local ok = pcall(mp.commandv, 'overlay-add', SPLASH_OVERLAY_ID, 0, 0, dest, 0, 'bgra', w, h, w * 4)
+    if ok then
+        _splash_overlay_on = true
+        _splash_overlay_key = key
+        _lua_log('splash: overlay ' .. key)
+    else
+        _lua_log('splash: overlay-add failed')
+    end
 end
 
 function M._install_splash_background()
@@ -6944,20 +7017,19 @@ function M._install_splash_background()
         _lua_log('splash: splash.png not found')
         return
     end
-    _lua_log('splash: using ' .. splash)
-    mp.observe_property('idle-active', 'bool', function(_, idle)
-        if idle then
-            mp.add_timeout(0.05, M._show_splash_background)
-        end
-    end)
-    mp.register_event('file-loaded', function()
-        if M._path_is_splash(mp.get_property('path')) then
-            pcall(mp.set_property, 'pause', 'yes')
-        end
-    end)
-    if mp.get_property_bool('idle-active') then
-        M._show_splash_background()
+    local cover = splash:gsub('\\', '/')
+    pcall(mp.set_property, 'cover-art-files', cover)
+    pcall(mp.set_property, 'cover-art-auto', 'no')
+    pcall(mp.set_property, 'audio-display', 'embedded-first')
+    _lua_log('splash: cover-art-files=' .. cover)
+    local function sync()
+        mp.add_timeout(0.05, M._show_splash_background)
     end
+    mp.observe_property('idle-active', 'bool', sync)
+    mp.observe_property('current-tracks/video', 'native', sync)
+    mp.observe_property('osd-width', 'number', sync)
+    mp.observe_property('osd-height', 'number', sync)
+    M._show_splash_background()
 end
 
 -- Keybindings with logging wrappers
