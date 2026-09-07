@@ -626,6 +626,18 @@ local function _path_exists(path)
     return utils.file_info(path) ~= nil
 end
 
+local function _ytdlp_cookiefile_path()
+    local repo = _detect_repo_root()
+    if repo == '' then
+        return ''
+    end
+    local cookie = utils.join_path(repo, 'plugins/ytdlp/cookies.txt')
+    if _path_exists(cookie) then
+        return cookie:gsub('\\', '/')
+    end
+    return ''
+end
+
 local function _normalize_fs_path(path)
     path = trim(tostring(path or ''))
     path = path:gsub('^"+', ''):gsub('"+$', '')
@@ -4201,8 +4213,13 @@ function M._build_web_ytdl_raw_options()
         extra[#extra + 1] = 'sub-langs=[en.*,en,-live_chat]'
     end
     if not lower:find('sub%-format=', 1) then
-        -- Prefer chunked subtitle formats over word-by-word JSON tracks.
         extra[#extra + 1] = 'sub-format=srt/vtt/best'
+    end
+    if not lower:find('cookies=', 1) then
+        local cookie = _ytdlp_cookiefile_path()
+        if cookie ~= '' then
+            extra[#extra + 1] = 'cookies=' .. cookie
+        end
     end
 
     if #extra == 0 then
@@ -4251,7 +4268,9 @@ function M._apply_web_subtitle_load_defaults(reason, preferred_target)
     end
 
     _set_current_web_url(target)
-    M._prepare_ytdl_format_for_web_load(target, reason or 'on-load')
+    if tostring(reason or '') ~= 'change-format' then
+        M._prepare_ytdl_format_for_web_load(target, reason or 'on-load')
+    end
 
     local raw = M._build_web_ytdl_raw_options()
     if raw and raw ~= '' then
@@ -5682,8 +5701,13 @@ function M._apply_ytdl_format_and_reload(url, fmt, height)
     pcall(mp.set_property, 'ytdl-format', tostring(playback_fmt))
 
     local load_options = {
+        ytdl = 'yes',
         ['ytdl-format'] = tostring(playback_fmt),
     }
+    local raw = M._build_web_ytdl_raw_options()
+    if raw and raw ~= '' then
+        load_options['ytdl-raw-options'] = raw
+    end
     if pos and pos > 0 then
         load_options['start'] = tostring(pos)
     end
@@ -5695,8 +5719,13 @@ function M._apply_ytdl_format_and_reload(url, fmt, height)
     end
 
     M._close_uosc_menu_and_sync(DOWNLOAD_FORMAT_MENU_TYPE, 'change-format-reload')
-    _lua_log('change-format: reloading current url with per-file options')
-    mp.command_native({ 'loadfile', url, 'replace', -1, load_options })
+    _lua_log('change-format: reloading current url with per-file options fmt=' .. tostring(playback_fmt))
+    mp.command_native({
+        name = 'loadfile',
+        url = url,
+        flags = 'replace',
+        options = load_options,
+    })
 
     if paused then
         mp.set_property_native('pause', true)
