@@ -71,8 +71,7 @@ try:
     from SYS.logger import set_debug, debug, set_thread_stream  # noqa: E402
     from SYS.repl_queue import enqueue_repl_command, repl_state_is_alive  # noqa: E402
     from SYS.utils import format_bytes  # noqa: E402
-    from PluginCore.registry import get_plugin, get_plugin_class  # noqa: E402
-    from plugins.ytdlp.tooling import get_display_format_id, get_selection_format_id  # noqa: E402
+    from PluginCore.registry import get_plugin, get_plugin_class, plugin_attr  # noqa: E402
 finally:
     if _path_added:
         sys.path.remove(_root_str)
@@ -1048,7 +1047,8 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                 format_id = str(fmt.get("format_id") or "").strip()
                 if not format_id:
                     continue
-                display_id = get_display_format_id(fmt) or format_id
+                display_fn = plugin_attr("ytdlp", "get_display_format_id")
+                display_id = (display_fn(fmt) if callable(display_fn) else None) or format_id
 
                 # Prefer human-ish resolution.
                 resolution = str(fmt.get("resolution") or "").strip()
@@ -1066,7 +1066,10 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                 ext = str(fmt.get("ext") or "").strip()
                 size = _format_bytes(fmt.get("filesize") or fmt.get("filesize_approx"))
 
-                selection_id = get_selection_format_id(fmt, video_audio_suffix="ba") or format_id
+                selection_fn = plugin_attr("ytdlp", "get_selection_format_id")
+                selection_id = (
+                    selection_fn(fmt, video_audio_suffix="ba") if callable(selection_fn) else None
+                ) or format_id
 
                 # Build selection args compatible with MPV Lua picker.
                 # Use -format instead of -query so Lua can extract the ID easily.

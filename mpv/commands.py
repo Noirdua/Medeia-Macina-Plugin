@@ -3035,6 +3035,11 @@ CMDLET = Cmdlet(
             description="Start mpv with no window border (uosc-like overlay feel without fullscreen)",
         ),
     ],
+    examples=[
+        ".mpv",
+        ".mpv -url https://example.com/video.mp4 -play",
+        "@1 | .mpv -play",
+    ],
     exec=_run,
 )
 
