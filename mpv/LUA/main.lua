@@ -6982,6 +6982,10 @@ function M._prefer_real_video_track()
     if path == '' or M._path_is_splash(path) then
         return false
     end
+    local current = mp.get_property_native('current-tracks/video')
+    if type(current) == 'table' and current.id and not current.albumart and not current.image then
+        return true
+    end
     local tracks = mp.get_property_native('track-list') or {}
     if type(tracks) ~= 'table' then
         return false
@@ -7056,10 +7060,10 @@ function M._install_splash_background()
         mp.add_timeout(0.05, M._show_splash_background)
     end
     mp.observe_property('idle-active', 'bool', sync)
-    mp.observe_property('current-tracks/video', 'native', sync)
     mp.observe_property('path', 'string', sync)
     mp.register_event('file-loaded', function()
         M._prefer_real_video_track()
+        _drop_splash_playlist_entries()
     end)
     M._show_splash_background()
 end

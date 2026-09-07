@@ -2192,11 +2192,7 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
             # we prefer 'replace' mode which starts playback immediately and avoids IPC overhead.
             # NOTE: Use wait=False for URLs because yt-dlp resolution can be slow and 
             # would cause the calling Lua script to timeout.
-            queue_replace = bool(replace_mode)
-            if play_mode and not replace_mode:
-                # If -play is used with a URL, treat it as "play this now".
-                # For better UX, we'll replace the current playlist.
-                queue_replace = True
+            queue_replace = True
 
             mpv_started = _queue_items([url_arg], clear_first=queue_replace, config=config, start_opts=start_opts, wait=False)
 
