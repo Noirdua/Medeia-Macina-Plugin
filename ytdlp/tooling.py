@@ -1493,18 +1493,7 @@ def config_schema() -> List[Dict[str, Any]]:
         "640",
         "audio",
     ]
-
-    # Offer browser choices depending on what's present on the host system
-    browser_choices = ["auto", "none"]
-    for b in ("chrome", "chromium", "brave"):
-        try:
-            if _browser_cookie_path_for(b) is not None:
-                browser_choices.append(b)
-        except Exception:
-            from SYS.logger import logger
-            logger.exception("Error while checking cookie path for browser '%s'", b)
-            continue
-
+    browser_choices = ["auto", "none", "chrome", "edge", "firefox", "brave", "chromium"]
     return [
         {
             "key": "format",
@@ -1513,8 +1502,13 @@ def config_schema() -> List[Dict[str, Any]]:
             "choices": format_choices,
         },
         {
+            "key": "cookie_file",
+            "label": "Cookie file (Netscape). Empty = plugins/ytdlp/cookies.txt. Use .config -upload cookies",
+            "default": "",
+        },
+        {
             "key": "cookies_from_browser",
-            "label": "Browser cookies (if no file in plugins/ytdlp/)",
+            "label": "Browser cookies (if no cookie file)",
             "default": "auto",
             "choices": browser_choices,
         },
