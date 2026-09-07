@@ -1119,6 +1119,57 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                 "table": None,
             }
 
+    if op_name in {"ytdlp-resolve", "ytdlp_resolve", "ytdl-resolve"}:
+        try:
+            url = ""
+            if isinstance(data, dict):
+                url = str(data.get("url") or "").strip()
+            if not url:
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": "Missing url",
+                    "table": None,
+                }
+            cfg = load_config() or {}
+            plugin = get_plugin("ytdlp", cfg)
+            resolve = getattr(plugin, "resolve_playback_url", None) if plugin is not None else None
+            if not callable(resolve):
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": "ytdlp plugin unavailable",
+                    "table": None,
+                }
+            payload = resolve(url, timeout_seconds=30)
+            if not isinstance(payload, dict) or not str(payload.get("url") or "").strip():
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "error": "ytdlp plugin could not resolve a playable URL",
+                    "table": None,
+                }
+            _append_helper_log(f"[ytdlp-resolve] ok title={payload.get('title') or ''}")
+            return {
+                "success": True,
+                "stdout": "",
+                "stderr": "",
+                "error": None,
+                "table": None,
+                "data": payload,
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": "",
+                "error": f"{type(exc).__name__}: {exc}",
+                "table": None,
+            }
+
     return {
         "success": False,
         "stdout": "",

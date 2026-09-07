@@ -781,6 +781,81 @@ class ytdlp(TablePluginMixin, Plugin):
             formats = list_formats(url_str, **call_kwargs)
         return formats if isinstance(formats, list) else None
 
+    def resolve_playback_url(self, url: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        url_str = str(url or "").strip()
+        if not url_str or not is_url_supported_by_ytdlp(url_str):
+            return None
+        from . import tooling as ytdlp_tooling
+
+        timeout_seconds = int(kwargs.get("timeout_seconds") or 30)
+        ytdlp_tool = YtDlpTool(self.config)
+        cookiefile = _cookiefile_str(ytdlp_tool)
+        holder: List[Any] = [None, None]
+
+        def _do_resolve() -> None:
+            try:
+                ytdlp_tooling.ensure_yt_dlp_ready()
+                yt_dlp = ytdlp_tooling.yt_dlp
+                if yt_dlp is None:
+                    holder[1] = "yt-dlp unavailable"
+                    return
+                headers = ytdlp_tooling._http_headers_for_url(url_str)
+                ydl_opts: Dict[str, Any] = {
+                    "quiet": True,
+                    "no_warnings": True,
+                    "skip_download": True,
+                    "noprogress": True,
+                    "noplaylist": True,
+                    "format": "bv*+ba/b",
+                    "socket_timeout": min(15, max(1, timeout_seconds)),
+                    "retries": 2,
+                    "user_agent": headers.get("User-Agent"),
+                    "referer": headers.get("Referer"),
+                    "http_headers": headers,
+                }
+                ytdlp_tooling._apply_ytdlp_impersonate(ydl_opts)
+                if cookiefile:
+                    ydl_opts["cookiefile"] = str(cookiefile)
+                else:
+                    ytdlp_tooling._add_browser_cookies_if_available(ydl_opts)
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url_str, download=False)
+                if not isinstance(info, dict):
+                    holder[1] = "no extract info"
+                    return
+                video_url = str(info.get("url") or "").strip()
+                audio_url = ""
+                requested = info.get("requested_formats")
+                if isinstance(requested, list) and requested:
+                    first = requested[0] if isinstance(requested[0], dict) else {}
+                    second = requested[1] if len(requested) > 1 and isinstance(requested[1], dict) else {}
+                    video_url = str(first.get("url") or video_url).strip()
+                    audio_url = str(second.get("url") or "").strip()
+                http_headers = info.get("http_headers") if isinstance(info.get("http_headers"), dict) else headers
+                if not video_url:
+                    holder[1] = "no stream url"
+                    return
+                holder[0] = {
+                    "url": video_url,
+                    "audio_url": audio_url,
+                    "title": str(info.get("title") or "").strip(),
+                    "headers": {str(k): str(v) for k, v in dict(http_headers or {}).items() if k and v},
+                }
+            except Exception as exc:
+                holder[1] = f"{type(exc).__name__}: {exc}"
+
+        import threading
+
+        thread = threading.Thread(target=_do_resolve, daemon=True)
+        thread.start()
+        thread.join(timeout=max(5, timeout_seconds))
+        if thread.is_alive():
+            return None
+        if holder[1] or not isinstance(holder[0], dict):
+            debug(f"[ytdlp] resolve_playback_url failed for {url_str}: {holder[1]}")
+            return None
+        return holder[0]
+
     def filter_picker_formats(
         self,
         formats: List[Dict[str, Any]],
