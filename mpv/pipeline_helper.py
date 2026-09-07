@@ -92,6 +92,7 @@ _ASYNC_PIPELINE_JOBS_LOCK = threading.Lock()
 _ASYNC_PIPELINE_JOB_TTL_SECONDS = 900.0
 _STORE_CHOICES_CACHE: list[str] = []
 _STORE_CHOICES_CACHE_LOCK = threading.Lock()
+_HELPER_SEND: Optional[Callable[..., bool]] = None
 
 
 def _normalize_store_choices(values: Any) -> list[str]:
@@ -505,6 +506,33 @@ def _run_pipeline_background(
 
 def _is_load_url_pipeline(pipeline_text: str) -> bool:
     return str(pipeline_text or "").lstrip().lower().startswith(".mpv -url")
+
+
+def _helper_send(command: Any, label: str = "") -> bool:
+    fn = _HELPER_SEND
+    if not callable(fn):
+        return False
+    return bool(fn(command, label))
+
+
+def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
+    play_url = str(payload.get("url") or "").strip()
+    if not play_url:
+        return False
+    headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else {}
+    fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
+    if fields:
+        _helper_send(["set_property", "http-header-fields", fields], "ytdlp-headers")
+    opts: Dict[str, Any] = {"ytdl": "no"}
+    title = str(payload.get("title") or "").strip()
+    if title:
+        opts["force-media-title"] = title
+    audio_url = str(payload.get("audio_url") or "").strip()
+    if audio_url:
+        opts["audio-file"] = audio_url
+    ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
+    _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} title={title}")
+    return ok
 
 
 def _run_op(op: str, data: Any) -> Dict[str, Any]:
@@ -1152,14 +1180,16 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                     "error": "ytdlp plugin could not resolve a playable URL",
                     "table": None,
                 }
-            _append_helper_log(f"[ytdlp-resolve] ok title={payload.get('title') or ''}")
+            title = str(payload.get("title") or "").strip()
+            _append_helper_log(f"[ytdlp-resolve] ok title={title}")
+            loaded = _load_resolved_playback(payload)
             return {
-                "success": True,
+                "success": bool(loaded),
                 "stdout": "",
                 "stderr": "",
-                "error": None,
+                "error": None if loaded else "loadfile failed",
                 "table": None,
-                "data": payload,
+                "data": {"title": title, "loaded": bool(loaded)},
             }
         except Exception as exc:
             return {
@@ -1933,6 +1963,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 except Exception:
                     pass
                 return False
+
+    global _HELPER_SEND
+    _HELPER_SEND = _send_helper_command
 
     def _emit_helper_log_to_mpv(payload: str) -> None:
         safe = str(payload or "").replace("\r", " ").replace("\n", " ").strip()

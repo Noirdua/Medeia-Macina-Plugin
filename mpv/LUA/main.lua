@@ -6723,39 +6723,17 @@ mp.register_script_message('medios-load-url-event', function(json)
         ensure_mpv_ipc_server()
         ensure_pipeline_helper_running()
         _run_helper_request_async({ op = 'ytdlp-resolve', data = { url = url } }, 45, function(resp, err)
+            local ok = type(resp) == 'table' and resp.success
             local data = type(resp) == 'table' and resp.data or nil
-            local play_url = ''
-            if type(data) == 'table' then
-                play_url = trim(tostring(data.url or ''))
-            end
-            if err or play_url == '' then
+            local loaded = type(data) == 'table' and data.loaded
+            if err or not ok then
                 _lua_log('[LOAD-URL] ytdlp plugin resolve failed err=' .. tostring(err or (resp and resp.error)))
                 mp.osd_message('yt-dlp plugin unavailable; trying ytdl-hook', 3)
                 pcall(mp.set_property, 'ytdl', 'yes')
                 pcall(mp.commandv, 'loadfile', url, 'replace')
                 return
             end
-            local headers = data.headers
-            if type(headers) == 'table' then
-                local fields = {}
-                for key, value in pairs(headers) do
-                    fields[#fields + 1] = tostring(key) .. ': ' .. tostring(value)
-                end
-                if #fields > 0 then
-                    pcall(mp.set_property_native, 'http-header-fields', fields)
-                end
-            end
-            local opts = { ytdl = 'no' }
-            local title = trim(tostring(data.title or ''))
-            if title ~= '' then
-                opts['force-media-title'] = title
-            end
-            local audio_url = trim(tostring(data.audio_url or ''))
-            if audio_url ~= '' then
-                opts['audio-file'] = audio_url
-            end
-            _lua_log('[LOAD-URL] ytdlp plugin resolved; loadfile ytdl=no')
-            pcall(mp.command_native, { 'loadfile', play_url, 'replace', 0, opts })
+            _lua_log('[LOAD-URL] ytdlp plugin loaded via helper loaded=' .. tostring(loaded))
             _log_all('INFO', 'Load URL via ytdlp plugin')
             mp.osd_message('URL loaded', 2)
             mp.add_timeout(0.5, function()
