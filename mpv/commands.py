@@ -515,6 +515,27 @@ def _iter_plugin_targets(item: Any) -> List[str]:
     return values
 
 
+def _resolve_ytdlp_playback(url: str, config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    target = str(url or "").strip()
+    if not target.lower().startswith(("http://", "https://")):
+        return None
+    try:
+        plugin = get_plugin("ytdlp", config or {})
+    except Exception:
+        plugin = None
+    resolve = getattr(plugin, "resolve_playback_url", None) if plugin is not None else None
+    if not callable(resolve):
+        return None
+    try:
+        payload = resolve(target, timeout_seconds=30)
+    except Exception as exc:
+        debug(f"ytdlp resolve_playback_url failed for {target}: {exc}", file=sys.stderr)
+        return None
+    if isinstance(payload, dict) and str(payload.get("url") or "").strip():
+        return payload
+    return None
+
+
 def _resolve_plugin_url(url: str, config: Optional[Dict[str, Any]]) -> str:
     target = str(url or "").strip()
     if not target:
@@ -1795,11 +1816,20 @@ def _queue_items(
             pass
 
         # If the target is an AllDebrid protected file URL, unlock it to a direct link for MPV.
+        ytdlp_play: Optional[Dict[str, Any]] = None
         try:
             if isinstance(target, str):
                 target = _resolve_plugin_url(target, config)
+                if _is_probable_ytdl_url(str(target)):
+                    ytdlp_play = _resolve_ytdlp_playback(str(target), config)
+                    if ytdlp_play:
+                        target = str(ytdlp_play.get("url") or target)
+                        play_title = str(ytdlp_play.get("title") or "").strip()
+                        if play_title:
+                            title = play_title
+                        debug(f"_queue_items: ytdlp plugin resolved title={title}")
         except Exception:
-            pass
+            ytdlp_play = None
 
         # Prefer per-item Hydrus instance credentials when the item belongs to a Hydrus store.
         effective_hydrus_url = hydrus_url
@@ -1941,6 +1971,25 @@ def _queue_items(
                 load_options["ytdl"] = "no"
                 if safe_title:
                     load_options["force-media-title"] = safe_title
+            if ytdlp_play and command_name == "loadfile":
+                load_options["ytdl"] = "no"
+                if safe_title:
+                    load_options["force-media-title"] = str(safe_title)
+                audio_url = str(ytdlp_play.get("audio_url") or "").strip()
+                if audio_url:
+                    load_options["audio-file"] = audio_url
+                headers = ytdlp_play.get("headers")
+                if isinstance(headers, dict) and headers:
+                    fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
+                    if fields:
+                        _send_ipc_command(
+                            {
+                                "command": ["set_property", "http-header-fields", fields],
+                                "request_id": 196,
+                            },
+                            silent=True,
+                            wait=True,
+                        )
 
             command_args: List[Any] = [command_name, target_to_send, mode]
             if load_options:
