@@ -527,6 +527,9 @@ class ytdlp(TablePluginMixin, Plugin):
     PLUGIN_NAME = "ytdlp"
     PLUGIN_SYSTEM_REQUIRES = ("deno",)
     PLUGIN_ALIASES = ("youtube",)
+    PLUGIN_UPLOADS = (
+        {"dest": "cookies.txt", "suffixes": (".txt", ".cookies"), "needles": ("cookie",)},
+    )
     SEARCH_QUERY_KEYS = ("search", "q")
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
 

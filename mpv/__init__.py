@@ -17,6 +17,9 @@ class Mpv(Plugin):
     PLUGIN_DESCRIPTION = "Play media in mpv with Medeia Lua UI, playlists, and pipeline helper."
     PLUGIN_ALIASES = (".mpv", ".pipe")
     EXPOSE_AS_FILE_PROVIDER = False
+    PLUGIN_UPLOADS = (
+        {"dest": "splash.png", "suffixes": (".png", ".jpg", ".jpeg", ".webp", ".bmp")},
+    )
     CONFIG_HELP = (
         "Requires mpv on PATH. Use .mpv to control playback; Load URL in the player uses yt-dlp for YouTube.",
     )
