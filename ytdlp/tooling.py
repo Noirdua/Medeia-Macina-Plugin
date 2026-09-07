@@ -48,9 +48,16 @@ def _yt_dlp_executable() -> str:
     if found:
         return str(found)
     name = "yt-dlp.exe" if os.name == "nt" else "yt-dlp"
-    candidate = Path(sys.executable).resolve().parent / name
-    if candidate.is_file():
-        return str(candidate)
+    roots = [Path(sys.executable).resolve().parent]
+    try:
+        roots.append(Path(__file__).resolve().parents[2] / ".venv" / "Scripts")
+        roots.append(Path(__file__).resolve().parents[2] / ".venv" / "bin")
+    except Exception:
+        pass
+    for folder in roots:
+        candidate = folder / name
+        if candidate.is_file():
+            return str(candidate)
     return ""
 
 

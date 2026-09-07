@@ -2189,6 +2189,33 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
     try:
+        from SYS.config import resolve_cookies_path
+        from plugins.ytdlp.tooling import _yt_dlp_executable
+
+        ytdl_bin = _yt_dlp_executable()
+        cookie = resolve_cookies_path(load_config() or {})
+        raw_parts = [
+            "write-subs=",
+            "write-auto-subs=",
+            "sub-langs=[en.*,en,-live_chat]",
+            "extractor-args=youtube:player_client=web",
+        ]
+        if cookie is not None:
+            raw_parts.append("cookies=" + str(cookie).replace("\\", "/"))
+        raw = ",".join(raw_parts)
+        if ytdl_bin:
+            _send_helper_command(["set_property", "ytdl-path", ytdl_bin], "ytdl-path")
+            _send_helper_command(["set_property", "options/ytdl-path", ytdl_bin], "ytdl-path-opt")
+            _append_helper_log(f"[helper] ytdl-path={ytdl_bin}")
+        _send_helper_command(["set_property", "ytdl-raw-options", raw], "ytdl-raw")
+        _send_helper_command(["set_property", "options/ytdl-raw-options", raw], "ytdl-raw-opt")
+        _append_helper_log("[helper] pinned ytdl-raw-options (web client + cookies)")
+    except Exception as exc:
+        _append_helper_log(
+            f"[helper] failed to pin ytdl-path/cookies: {type(exc).__name__}: {exc}"
+        )
+
+    try:
         _append_helper_log(f"[helper] connected to ipc={args.ipc}")
     except Exception:
         pass
