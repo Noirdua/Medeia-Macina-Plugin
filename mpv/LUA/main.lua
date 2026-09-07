@@ -6922,92 +6922,83 @@ function M._path_is_splash(path)
     return current == splash or current:sub(-#splash) == splash
 end
 
-local SPLASH_OVERLAY_ID = 97
-local _splash_overlay_on = false
-local _splash_overlay_key = ''
+local _splash_idle_loading = false
 
-local function _splash_osd_size()
-    local w, h = mp.get_osd_size()
-    w = math.floor((tonumber(w) or 0) / 2) * 2
-    h = math.floor((tonumber(h) or 0) / 2) * 2
-    return w, h
-end
-
-local function _splash_bgra_path(w, h)
-    local tmp = os.getenv('TEMP') or os.getenv('TMP') or '/tmp'
-    tmp = tostring(tmp):gsub('\\', '/')
-    return string.format('%s/medeia-splash-%dx%d.bgra', tmp, w, h)
-end
-
-local function _write_splash_bgra(src, dest, w, h)
-    if _path_exists(dest) then
-        return true
+local function _playlist_has_real_item()
+    local list = mp.get_property_native('playlist') or {}
+    for _, item in ipairs(list) do
+        local filename = ''
+        if type(item) == 'table' then
+            filename = item.filename or ''
+        end
+        if filename ~= '' and not M._path_is_splash(filename) then
+            return true
+        end
     end
-    local vf = string.format(
-        'scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d',
-        w, h, w, h
-    )
-    local res = mp.command_native({
-        name = 'subprocess',
-        args = {
-            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
-            '-i', src, '-an', '-vf', vf, '-frames:v', '1',
-            '-f', 'rawvideo', '-pix_fmt', 'bgra', dest,
-        },
-        playback_only = false,
-        capture_stdout = true,
-        capture_stderr = true,
-    })
-    return type(res) == 'table' and tonumber(res.status) == 0 and _path_exists(dest)
+    return false
 end
 
-local function _hide_splash_overlay()
-    if not _splash_overlay_on then
+local function _drop_splash_playlist_entries()
+    local list = mp.get_property_native('playlist') or {}
+    if type(list) ~= 'table' or #list <= 1 then
         return
     end
-    pcall(mp.commandv, 'overlay-remove', SPLASH_OVERLAY_ID)
-    _splash_overlay_on = false
-    _splash_overlay_key = ''
+    for i = #list, 1, -1 do
+        local filename = list[i] and list[i].filename or ''
+        if M._path_is_splash(filename) then
+            pcall(mp.commandv, 'playlist-remove', tostring(i - 1))
+        end
+    end
 end
 
-local function _needs_splash_overlay()
-    if mp.get_property_bool('idle-active') then
-        return true
+local function _track_has_splash()
+    local tracks = mp.get_property_native('track-list') or {}
+    if type(tracks) ~= 'table' then
+        return false
     end
-    local vid = mp.get_property_native('current-tracks/video')
-    return vid == nil
+    for _, track in ipairs(tracks) do
+        if type(track) == 'table' and track.type == 'video' then
+            local ext = track['external-filename'] or ''
+            if track.title == 'Medeia' or M._path_is_splash(ext) then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 function M._show_splash_background()
-    if not _needs_splash_overlay() then
-        _hide_splash_overlay()
-        return
-    end
     local splash = M._resolve_splash_path()
     if splash == '' then
         return
     end
-    local w, h = _splash_osd_size()
-    if w < 2 or h < 2 then
+    local path = mp.get_property('path') or ''
+    if M._path_is_splash(path) then
+        pcall(mp.set_property, 'pause', 'yes')
+        pcall(mp.set_property, 'force-media-title', 'Medeia')
+        pcall(mp.set_property, 'media-title', 'Medeia')
         return
     end
-    local key = w .. 'x' .. h
-    if _splash_overlay_on and _splash_overlay_key == key then
+    _drop_splash_playlist_entries()
+    if mp.get_property_native('current-tracks/video') ~= nil then
         return
     end
-    local dest = _splash_bgra_path(w, h)
-    if not _write_splash_bgra(splash, dest, w, h) then
-        _lua_log('splash: overlay encode failed (need ffmpeg on PATH)')
+    local idle = mp.get_property_bool('idle-active')
+    if idle or (path == '' and not _playlist_has_real_item()) then
+        if _splash_idle_loading then
+            return
+        end
+        _splash_idle_loading = true
+        _lua_log('splash: idle loadfile ' .. splash)
+        pcall(mp.commandv, 'loadfile', splash, 'replace')
+        mp.add_timeout(0.5, function()
+            _splash_idle_loading = false
+        end)
         return
     end
-    _hide_splash_overlay()
-    local ok = pcall(mp.commandv, 'overlay-add', SPLASH_OVERLAY_ID, 0, 0, dest, 0, 'bgra', w, h, w * 4)
-    if ok then
-        _splash_overlay_on = true
-        _splash_overlay_key = key
-        _lua_log('splash: overlay ' .. key)
-    else
-        _lua_log('splash: overlay-add failed')
+    if path ~= '' and not _track_has_splash() then
+        _lua_log('splash: video-add for audio without cover')
+        pcall(mp.commandv, 'video-add', splash, 'select', 'Medeia')
     end
 end
 
@@ -7027,8 +7018,7 @@ function M._install_splash_background()
     end
     mp.observe_property('idle-active', 'bool', sync)
     mp.observe_property('current-tracks/video', 'native', sync)
-    mp.observe_property('osd-width', 'number', sync)
-    mp.observe_property('osd-height', 'number', sync)
+    mp.observe_property('path', 'string', sync)
     M._show_splash_background()
 end
 
