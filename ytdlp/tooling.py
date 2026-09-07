@@ -41,6 +41,19 @@ _BROWSER_UA = (
 )
 
 
+def _yt_dlp_executable() -> str:
+    from shutil import which
+
+    found = which("yt-dlp")
+    if found:
+        return str(found)
+    name = "yt-dlp.exe" if os.name == "nt" else "yt-dlp"
+    candidate = Path(sys.executable).resolve().parent / name
+    if candidate.is_file():
+        return str(candidate)
+    return ""
+
+
 def _http_headers_for_url(url: str) -> Dict[str, str]:
     try:
         parsed = urlparse(url)

@@ -519,21 +519,32 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     play_url = str(payload.get("url") or "").strip()
     if not play_url:
         return False
-    headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else {}
-    fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
-    if fields:
-        _helper_send(["set_property", "http-header-fields", fields], "ytdlp-headers")
-    opts: Dict[str, Any] = {"ytdl": "no"}
+    opts: Dict[str, Any] = {}
     title = str(payload.get("title") or "").strip()
     if title:
         opts["force-media-title"] = title
-    audio_url = str(payload.get("audio_url") or "").strip()
-    if audio_url:
-        opts["audio-file"] = audio_url
+    if payload.get("ytdl"):
+        opts["ytdl"] = "yes"
+        cookiefile = str(payload.get("cookiefile") or "").replace("\\", "/").strip()
+        if cookiefile:
+            opts["ytdl-raw-options"] = f"cookies={cookiefile}"
+        ytdl_path = str(payload.get("ytdl_path") or "").strip()
+        if ytdl_path:
+            _helper_send(["set_property", "ytdl-path", ytdl_path], "ytdlp-path")
+    else:
+        opts["ytdl"] = "no"
+        headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else {}
+        fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
+        if fields:
+            opts["http-header-fields"] = fields
+            _helper_send(["set_property", "http-header-fields", fields], "ytdlp-headers")
+        audio_url = str(payload.get("audio_url") or "").strip()
+        if audio_url:
+            opts["audio-file"] = audio_url
     _helper_send(["set_property", "cover-art-files", ""], "clear-cover")
     _helper_send(["set_property", "pause", "no"], "unpause")
     ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
-    _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} title={title}")
+    _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} ytdl={bool(payload.get('ytdl'))} title={title}")
     return ok
 
 

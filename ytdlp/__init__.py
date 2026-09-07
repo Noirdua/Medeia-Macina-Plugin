@@ -797,6 +797,18 @@ class ytdlp(TablePluginMixin, Plugin):
 
         def _do_resolve() -> None:
             try:
+                lower = url_str.lower()
+                is_youtube = ("youtube.com" in lower) or ("youtu.be" in lower)
+                ytdl_bin = ytdlp_tooling._yt_dlp_executable()
+                if is_youtube:
+                    holder[0] = {
+                        "url": url_str,
+                        "ytdl": True,
+                        "cookiefile": cookiefile or "",
+                        "ytdl_path": ytdl_bin or "",
+                        "title": "",
+                    }
+                    return
                 ytdlp_tooling.ensure_yt_dlp_ready()
                 yt_dlp = ytdlp_tooling.yt_dlp
                 if yt_dlp is None:
@@ -843,6 +855,7 @@ class ytdlp(TablePluginMixin, Plugin):
                     "audio_url": audio_url,
                     "title": str(info.get("title") or "").strip(),
                     "headers": {str(k): str(v) for k, v in dict(http_headers or {}).items() if k and v},
+                    "cookiefile": cookiefile or "",
                 }
             except Exception as exc:
                 holder[1] = f"{type(exc).__name__}: {exc}"

@@ -1972,24 +1972,41 @@ def _queue_items(
                 if safe_title:
                     load_options["force-media-title"] = safe_title
             if ytdlp_play and command_name == "loadfile":
-                load_options["ytdl"] = "no"
                 if safe_title:
                     load_options["force-media-title"] = str(safe_title)
-                audio_url = str(ytdlp_play.get("audio_url") or "").strip()
-                if audio_url:
-                    load_options["audio-file"] = audio_url
-                headers = ytdlp_play.get("headers")
-                if isinstance(headers, dict) and headers:
-                    fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
-                    if fields:
+                if ytdlp_play.get("ytdl"):
+                    load_options["ytdl"] = "yes"
+                    cookiefile = str(ytdlp_play.get("cookiefile") or "").replace("\\", "/").strip()
+                    if cookiefile:
+                        load_options["ytdl-raw-options"] = f"cookies={cookiefile}"
+                    ytdl_path = str(ytdlp_play.get("ytdl_path") or "").strip()
+                    if ytdl_path:
                         _send_ipc_command(
                             {
-                                "command": ["set_property", "http-header-fields", fields],
-                                "request_id": 196,
+                                "command": ["set_property", "ytdl-path", ytdl_path],
+                                "request_id": 195,
                             },
                             silent=True,
                             wait=True,
                         )
+                else:
+                    load_options["ytdl"] = "no"
+                    audio_url = str(ytdlp_play.get("audio_url") or "").strip()
+                    if audio_url:
+                        load_options["audio-file"] = audio_url
+                    headers = ytdlp_play.get("headers")
+                    if isinstance(headers, dict) and headers:
+                        fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
+                        if fields:
+                            load_options["http-header-fields"] = fields
+                            _send_ipc_command(
+                                {
+                                    "command": ["set_property", "http-header-fields", fields],
+                                    "request_id": 196,
+                                },
+                                silent=True,
+                                wait=True,
+                            )
 
             command_args: List[Any] = [command_name, target_to_send, mode]
             if load_options:
