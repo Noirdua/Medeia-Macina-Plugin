@@ -434,14 +434,16 @@ def _try_enable_mpv_file_logging(mpv_log_path: str, *, attempts: int = 3) -> boo
                     "command": ["set_property",
                                 "options/log-file",
                                 mpv_log_path]
-                }
+                },
+                silent=True,
             )
             r2 = _send_ipc_command(
                 {
                     "command": ["set_property",
                                 "options/msg-level",
                                 "cplayer=info,ffmpeg=error,ipc=warn"]
-                }
+                },
+                silent=True,
             )
             ok = bool(
                 (r1 and r1.get("error") == "success")
@@ -2096,7 +2098,7 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
 
             # If mpv is already running, set log options live via IPC.
             try:
-                mpv_live = MPV()
+                mpv_live = MPV(silent=True)
                 if mpv_live.is_running():
                     mpv_live.set_property("options/log-file", mpv_log_path)
                     mpv_live.set_property("options/msg-level", "cplayer=info,ffmpeg=error,ipc=warn")

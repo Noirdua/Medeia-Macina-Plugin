@@ -7027,6 +7027,7 @@ function M._show_splash_background()
     local path = mp.get_property('path') or ''
     if M._path_is_splash(path) then
         pcall(mp.set_property, 'pause', 'yes')
+        pcall(mp.set_property, 'keepaspect', 'yes')
         pcall(mp.set_property, 'force-media-title', 'Medeia')
         pcall(mp.set_property, 'media-title', 'Medeia')
         return
@@ -7075,7 +7076,7 @@ function M._install_splash_background()
     pcall(mp.set_property, 'audio-display', 'embedded-first')
     _lua_log('splash: idle image only (no cover-art-files)')
     local function sync()
-        mp.add_timeout(0.05, M._show_splash_background)
+        mp.add_timeout(1.2, M._show_splash_background)
     end
     mp.observe_property('idle-active', 'bool', sync)
     mp.observe_property('path', 'string', sync)

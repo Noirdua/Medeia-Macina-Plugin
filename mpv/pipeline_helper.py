@@ -2209,7 +2209,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         _send_helper_command(["set_property", "ytdl-raw-options", raw_opts], "ytdl-raw")
         _send_helper_command(["set_property", "options/ytdl-raw-options", raw_opts], "ytdl-raw-opt")
         _send_helper_command(["set_property", "ytdl-format", "bv*+ba/b"], "ytdl-fmt")
-        _append_helper_log("[helper] pinned ytdl-path/cookies")
+        _append_helper_log(
+            f"[helper] pinned ytdl-path/cookies cookie={'yes' if cookie is not None else 'no'}"
+        )
     except Exception as exc:
         _append_helper_log(
             f"[helper] failed to pin ytdl-path/cookies: {type(exc).__name__}: {exc}"
