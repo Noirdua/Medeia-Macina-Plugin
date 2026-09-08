@@ -559,7 +559,9 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
         opts["ytdl"] = "yes"
         cookiefile = str(payload.get("cookiefile") or "").replace("\\", "/").strip()
         if cookiefile:
-            opts["ytdl-raw-options"] = f"cookies={cookiefile}"
+            opts["ytdl-raw-options"] = {"cookies": cookiefile}
+        else:
+            opts["ytdl-raw-options"] = {"cookies-from-browser": "chrome"}
         ytdl_path = str(payload.get("ytdl_path") or "").strip()
         if ytdl_path:
             _helper_send(["set_property", "ytdl-path", ytdl_path], "ytdlp-path")
@@ -2226,14 +2228,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         ytdl_bin = _yt_dlp_executable()
         cookie = resolve_cookies_path(load_config() or {})
-        raw_opts = {
-            "write-subs": "",
-            "write-auto-subs": "",
-            "sub-langs": "en",
-            "extractor-args": "youtube:player_client=tv",
-        }
+        raw_opts: Dict[str, str] = {}
         if cookie is not None:
             raw_opts["cookies"] = str(cookie).replace("\\", "/")
+        else:
+            raw_opts["cookies-from-browser"] = "chrome"
         if ytdl_bin:
             _send_helper_command(["set_property", "ytdl-path", ytdl_bin], "ytdl-path")
             _send_helper_command(["set_property", "options/ytdl-path", ytdl_bin], "ytdl-path-opt")

@@ -4199,15 +4199,12 @@ _current_url_for_web_actions = function()
 end
 
 function M._ytdl_raw_options_table()
-    local t = {
-        ['write-subs'] = '',
-        ['write-auto-subs'] = '',
-        ['sub-langs'] = 'en',
-        ['extractor-args'] = 'youtube:player_client=tv',
-    }
+    local t = {}
     local cookie = _ytdlp_cookiefile_path()
     if cookie ~= '' then
         t['cookies'] = cookie
+    else
+        t['cookies-from-browser'] = 'chrome'
     end
     return t
 end
