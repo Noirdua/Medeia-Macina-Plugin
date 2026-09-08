@@ -390,7 +390,10 @@ def _enrich_book_tags_from_isbn(isbn: str,
 
     # 2) isbnsearch metadata plugin fallback.
     try:
-        from plugins.metadata_plugin import get_metadata_plugin
+        try:
+            from plugins.metadata_plus import get_metadata_plugin
+        except ImportError:
+            from plugins.metadata_plugin import get_metadata_plugin
 
         provider = get_metadata_plugin("isbnsearch",
                                        config or {})

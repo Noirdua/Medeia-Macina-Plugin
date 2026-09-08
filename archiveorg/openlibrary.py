@@ -23,10 +23,16 @@ from plugins.archiveorg._common import archive_credentials, plugin_config_entry
 from SYS.utils import sanitize_filename
 from SYS.cli_syntax import get_field, get_free_text, parse_query
 from SYS.logger import log
-from plugins.metadata_plugin import (
-    archive_item_metadata_to_tags,
-    fetch_archive_item_metadata,
-)
+try:
+    from plugins.metadata_plus import (
+        archive_item_metadata_to_tags,
+        fetch_archive_item_metadata,
+    )
+except ImportError:
+    from plugins.metadata_plugin import (
+        archive_item_metadata_to_tags,
+        fetch_archive_item_metadata,
+    )
 from SYS.utils import unique_path
 
 _DEFAULT_ARCHIVE_SCALE = 4

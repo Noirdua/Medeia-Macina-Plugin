@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-PLUGIN_NAME = "metadata_plugin"
+PLUGIN_NAME = "metadata+"
 PLUGIN_VERSION = "1.0.0"
 PLUGIN_AUTHOR = "Medeia"
-PLUGIN_DESCRIPTION = "Metadata scrapers (iTunes, Open Library, IMDb, MusicBrainz)."
+PLUGIN_DESCRIPTION = (
+    "Lookup tags from iTunes, MusicBrainz, IMDb, Open Library, "
+    "Google Books, ISBN, yt-dlp, and Tidal."
+)
+PLUGIN_ALIASES = ("metadata_plus", "metadata_plugin", "metadataplus")
+PLUGIN_REQUIRES = ("musicbrainzngs>=0.7.0", "imdbinfo>=0.1.10", "lxml>=4.9.0")
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type, cast
@@ -15,7 +20,7 @@ import subprocess
 
 from API.HTTP import HTTPClient
 from API.requests_client import get_requests_session
-from PluginCore.base import SearchResult
+from PluginCore.base import Plugin, SearchResult
 try:
     from plugins.tidal import Tidal
 except ImportError:  # pragma: no cover - optional
@@ -1920,3 +1925,35 @@ def get_metadata_plugin_for_url(
             best_priority = priority
             best_plugin = plugin
     return best_plugin
+
+
+class MetadataPlus(Plugin):
+    PLUGIN_NAME = "metadata+"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = (
+        "Lookup tags from iTunes, MusicBrainz, IMDb, Open Library, "
+        "Google Books, ISBN, yt-dlp, and Tidal."
+    )
+    PLUGIN_ALIASES = ("metadata_plus", "metadata_plugin", "metadataplus")
+    PLUGIN_REQUIRES = ("musicbrainzngs>=0.7.0", "imdbinfo>=0.1.10", "lxml>=4.9.0")
+    SUPPORTED_CMDLETS = frozenset()
+    METADATA_ACTIONS: Dict[str, Dict[str, Any]] = {
+        "auto": {
+            "flags": ("-auto", "--auto", "-autotag", "--autotag"),
+            "module": "cmdlet.metadata.auto_tag",
+            "description": "Auto-tag from title and source URL (requires metadata+)",
+            "alias": "autotag",
+            "examples": (
+                "@1-20 | metadata -auto -preview",
+                "@1-20 | metadata -auto",
+            ),
+        }
+    }
+    CONFIG_HELP = (
+        "Used by metadata -get -scrape and metadata -auto. "
+        "Sources: itunes, musicbrainz, imdb, openlibrary, googlebooks, isbnsearch, ytdlp, tidal.",
+    )
+
+    def validate(self) -> bool:
+        return True
