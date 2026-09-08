@@ -20,6 +20,12 @@ class Bandcamp(Plugin):
         "bandcamp": ["download-file"],
     }
     AUTO_STAGE_USE_SELECTION_ARGS = True
+    QUERY_ARG_CHOICES = {
+        "artist": (),
+        "album": (),
+        "track": (),
+    }
+    INLINE_QUERY_FIELD_CHOICES = QUERY_ARG_CHOICES
 
     @staticmethod
     def _download_selection_args(target_url: str, media_type: str) -> Optional[List[str]]:
