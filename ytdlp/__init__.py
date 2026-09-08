@@ -797,18 +797,6 @@ class ytdlp(TablePluginMixin, Plugin):
 
         def _do_resolve() -> None:
             try:
-                lower = url_str.lower()
-                is_youtube = ("youtube.com" in lower) or ("youtu.be" in lower)
-                ytdl_bin = ytdlp_tooling._yt_dlp_executable()
-                if is_youtube:
-                    holder[0] = {
-                        "url": url_str,
-                        "ytdl": True,
-                        "cookiefile": cookiefile or "",
-                        "ytdl_path": ytdl_bin or "",
-                        "title": "",
-                    }
-                    return
                 ytdlp_tooling.ensure_yt_dlp_ready()
                 yt_dlp = ytdlp_tooling.yt_dlp
                 if yt_dlp is None:
@@ -821,7 +809,7 @@ class ytdlp(TablePluginMixin, Plugin):
                     "skip_download": True,
                     "noprogress": True,
                     "noplaylist": True,
-                    "format": "bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b",
+                    "format": "b/bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b",
                     "socket_timeout": min(15, max(1, timeout_seconds)),
                     "retries": 2,
                     "user_agent": headers.get("User-Agent"),
@@ -833,29 +821,40 @@ class ytdlp(TablePluginMixin, Plugin):
                     ydl_opts["cookiefile"] = str(cookiefile)
                 else:
                     ytdlp_tooling._add_browser_cookies_if_available(ydl_opts)
+                cookie_hdr = ""
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url_str, download=False)
-                if not isinstance(info, dict):
-                    holder[1] = "no extract info"
-                    return
-                video_url = str(info.get("url") or "").strip()
-                audio_url = ""
-                requested = info.get("requested_formats")
-                if isinstance(requested, list) and requested:
-                    first = requested[0] if isinstance(requested[0], dict) else {}
-                    second = requested[1] if len(requested) > 1 and isinstance(requested[1], dict) else {}
-                    video_url = str(first.get("url") or video_url).strip()
-                    audio_url = str(second.get("url") or "").strip()
-                http_headers = info.get("http_headers") if isinstance(info.get("http_headers"), dict) else headers
+                    if not isinstance(info, dict):
+                        holder[1] = "no extract info"
+                        return
+                    video_url = str(info.get("url") or "").strip()
+                    audio_url = ""
+                    requested = info.get("requested_formats")
+                    if isinstance(requested, list) and requested:
+                        first = requested[0] if isinstance(requested[0], dict) else {}
+                        second = requested[1] if len(requested) > 1 and isinstance(requested[1], dict) else {}
+                        video_url = str(first.get("url") or video_url).strip()
+                        audio_url = str(second.get("url") or "").strip()
+                    http_headers = info.get("http_headers") if isinstance(info.get("http_headers"), dict) else headers
+                    try:
+                        from urllib.request import Request
+
+                        req = Request(video_url or url_str)
+                        ydl.cookiejar.add_cookie_header(req)
+                        cookie_hdr = req.get_header("Cookie") or ""
+                    except Exception:
+                        cookie_hdr = ""
                 if not video_url:
                     holder[1] = "no stream url"
                     return
+                merged = {str(k): str(v) for k, v in dict(http_headers or {}).items() if k and v}
+                if cookie_hdr:
+                    merged["Cookie"] = cookie_hdr
                 holder[0] = {
                     "url": video_url,
                     "audio_url": audio_url,
                     "title": str(info.get("title") or "").strip(),
-                    "headers": {str(k): str(v) for k, v in dict(http_headers or {}).items() if k and v},
-                    "cookiefile": cookiefile or "",
+                    "headers": merged,
                 }
             except Exception as exc:
                 holder[1] = f"{type(exc).__name__}: {exc}"

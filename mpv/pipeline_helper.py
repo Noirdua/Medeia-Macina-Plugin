@@ -551,34 +551,20 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     play_url = str(payload.get("url") or "").strip()
     if not play_url:
         return False
-    opts: Dict[str, Any] = {}
+    opts: Dict[str, str] = {"ytdl": "no"}
     title = str(payload.get("title") or "").strip()
     if title:
         opts["force-media-title"] = title
-    if payload.get("ytdl"):
-        opts["ytdl"] = "yes"
-        opts["ytdl-format"] = "bv*+ba/b"
-        cookiefile = str(payload.get("cookiefile") or "").replace("\\", "/").strip()
-        raw_opts = {"cookies": cookiefile} if cookiefile else {"cookies-from-browser": "chrome"}
-        _helper_send(["set_property", "ytdl-raw-options", raw_opts], "ytdl-raw")
-        _helper_send(["set_property", "options/ytdl-raw-options", raw_opts], "ytdl-raw-opt")
-        ytdl_path = str(payload.get("ytdl_path") or "").strip()
-        if ytdl_path:
-            _helper_send(["set_property", "ytdl-path", ytdl_path], "ytdlp-path")
-    else:
-        opts["ytdl"] = "no"
-        headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else {}
-        fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
-        if fields:
-            opts["http-header-fields"] = fields
-            _helper_send(["set_property", "http-header-fields", fields], "ytdlp-headers")
-        audio_url = str(payload.get("audio_url") or "").strip()
-        if audio_url:
-            opts["audio-file"] = audio_url
-    _helper_send(["set_property", "cover-art-files", ""], "clear-cover")
+    headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else {}
+    fields = [f"{key}: {value}" for key, value in headers.items() if key and str(value).strip()]
+    if fields:
+        _helper_send(["set_property", "http-header-fields", fields], "ytdlp-headers")
+    audio_url = str(payload.get("audio_url") or "").strip()
+    if audio_url:
+        opts["audio-file"] = audio_url
     _helper_send(["set_property", "pause", "no"], "unpause")
     ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
-    _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} ytdl={bool(payload.get('ytdl'))} title={title}")
+    _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} ytdl=no title={title}")
     return ok
 
 

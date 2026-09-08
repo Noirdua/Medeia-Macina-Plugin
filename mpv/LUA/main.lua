@@ -4470,6 +4470,11 @@ function M._sync_current_web_url_from_playback()
 end
 
 mp.add_hook('on_load', 50, function()
+    local path = tostring(mp.get_property('path') or mp.get_property('stream-open-filename') or ''):lower()
+    if path:find('googlevideo.com', 1, true) then
+        pcall(mp.set_property, 'file-local-options/ytdl', 'no')
+        return
+    end
     local ok, err = pcall(M._apply_web_subtitle_load_defaults, 'on_load')
     if not ok then
         _lua_log('web-subtitles: on_load setup failed err=' .. tostring(err))
