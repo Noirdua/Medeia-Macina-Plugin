@@ -95,6 +95,38 @@ _STORE_CHOICES_CACHE_LOCK = threading.Lock()
 _HELPER_SEND: Optional[Callable[..., bool]] = None
 
 
+def _play_request_path() -> Path:
+    return Path(__file__).resolve().parent / "play-request.json"
+
+
+def _consume_play_request() -> str:
+    path = _play_request_path()
+    if not path.is_file():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    try:
+        path.unlink()
+    except Exception:
+        pass
+    if isinstance(data, dict):
+        return str(data.get("url") or "").strip()
+    return str(data or "").strip()
+
+
+def _service_play_request() -> None:
+    url = _consume_play_request()
+    if not url:
+        return
+    _append_helper_log(f"[helper] play-request url={url}")
+    try:
+        _run_op("ytdlp-resolve", {"url": url})
+    except Exception as exc:
+        _append_helper_log(f"[helper] play-request failed: {type(exc).__name__}: {exc}")
+
+
 def _normalize_store_choices(values: Any) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -2212,6 +2244,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         _append_helper_log(
             f"[helper] pinned ytdl-path/cookies cookie={'yes' if cookie is not None else 'no'}"
         )
+        _service_play_request()
     except Exception as exc:
         _append_helper_log(
             f"[helper] failed to pin ytdl-path/cookies: {type(exc).__name__}: {exc}"
@@ -2232,6 +2265,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _mark_ipc_alive("main-idle")
                 # Keep READY fresh even when idle (Lua may clear it on timeouts).
                 _touch_ready()
+                _service_play_request()
                 if use_shared_ipc_client:
                     try:
                         resp = client.send_command(["get_property", REQUEST_PROP])

@@ -517,6 +517,12 @@ def _iter_plugin_targets(item: Any) -> List[str]:
     return values
 
 
+def _write_mpv_play_request(url: str) -> None:
+    path = Path(__file__).resolve().parent / "play-request.json"
+    payload = {"url": str(url or "").strip(), "ts": datetime.now().timestamp()}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _resolve_ytdlp_playback(url: str, config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     target = str(url or "").strip()
     if not target.lower().startswith(("http://", "https://")):
@@ -1823,13 +1829,15 @@ def _queue_items(
             if isinstance(target, str):
                 target = _resolve_plugin_url(target, config)
                 if _is_probable_ytdl_url(str(target)):
-                    ytdlp_play = _resolve_ytdlp_playback(str(target), config)
-                    if ytdlp_play:
-                        target = str(ytdlp_play.get("url") or target)
-                        play_title = str(ytdlp_play.get("title") or "").strip()
-                        if play_title:
-                            title = play_title
-                        debug(f"_queue_items: ytdlp plugin resolved title={title}")
+                    _write_mpv_play_request(str(target))
+                    try:
+                        running = MPV(silent=True).is_running()
+                    except Exception:
+                        running = False
+                    if not running:
+                        _start_mpv([], config=config, start_opts=start_opts)
+                    debug(f"_queue_items: helper play-request {target}")
+                    continue
         except Exception:
             ytdlp_play = None
 
