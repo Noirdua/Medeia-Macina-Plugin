@@ -557,11 +557,11 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
         opts["force-media-title"] = title
     if payload.get("ytdl"):
         opts["ytdl"] = "yes"
+        opts["ytdl-format"] = "bv*+ba/b"
         cookiefile = str(payload.get("cookiefile") or "").replace("\\", "/").strip()
-        if cookiefile:
-            opts["ytdl-raw-options"] = {"cookies": cookiefile}
-        else:
-            opts["ytdl-raw-options"] = {"cookies-from-browser": "chrome"}
+        raw_opts = {"cookies": cookiefile} if cookiefile else {"cookies-from-browser": "chrome"}
+        _helper_send(["set_property", "ytdl-raw-options", raw_opts], "ytdl-raw")
+        _helper_send(["set_property", "options/ytdl-raw-options", raw_opts], "ytdl-raw-opt")
         ytdl_path = str(payload.get("ytdl_path") or "").strip()
         if ytdl_path:
             _helper_send(["set_property", "ytdl-path", ytdl_path], "ytdlp-path")

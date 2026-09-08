@@ -1993,7 +1993,14 @@ def _queue_items(
                     else:
                         raw_opts["cookies-from-browser"] = "chrome"
                     if raw_opts:
-                        load_options["ytdl-raw-options"] = raw_opts
+                        _send_ipc_command(
+                            {
+                                "command": ["set_property", "ytdl-raw-options", raw_opts],
+                                "request_id": 194,
+                            },
+                            silent=True,
+                            wait=True,
+                        )
                     load_options["ytdl-format"] = "bv*+ba/b"
                     ytdl_path = str(ytdlp_play.get("ytdl_path") or "").strip()
                     if ytdl_path:
