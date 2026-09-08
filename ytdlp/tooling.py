@@ -1523,7 +1523,7 @@ def config_schema() -> List[Dict[str, Any]]:
         },
         {
             "key": "cookie_file",
-            "label": "Cookie file (Netscape). Empty = plugins/ytdlp/cookies.txt. Use .config -upload cookies",
+            "label": "Cookie file",
             "default": "",
         },
         {
