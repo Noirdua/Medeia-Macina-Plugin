@@ -302,6 +302,10 @@ class Matrix(TablePluginMixin, Plugin):
 
     EXPOSE_AS_FILE_PROVIDER = False
     MULTI_INSTANCE = True
+    PLUGIN_NAME = "matrix"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Matrix homeserver file search and upload."
     SUPPORTED_CMDLETS = frozenset({"add-file", "search-file"})
 
     @classmethod

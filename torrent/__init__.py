@@ -360,6 +360,10 @@ class ApiBayScraper(Scraper):
 
 
 class Torrent(Plugin):
+    PLUGIN_NAME = "torrent"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Torrent site search (Nyaa, 1337x, YTS)."
     TABLE_AUTO_STAGES = {"torrent": ["download-file"]}
     SUPPORTED_CMDLETS = frozenset({"search-file"})
 

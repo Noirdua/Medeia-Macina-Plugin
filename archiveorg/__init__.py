@@ -40,6 +40,9 @@ _OL_VIEWS = {
 
 class ArchiveOrg(OpenLibraryOps, InternetArchiveOps, Plugin):
     PLUGIN_NAME = "archiveorg"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Internet Archive and Open Library search, borrow, and download."
     PLUGIN_ALIASES = (
         "archive.org",
         "openlibrary",

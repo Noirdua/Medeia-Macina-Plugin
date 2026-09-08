@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+PLUGIN_NAME = "metadata_plugin"
+PLUGIN_VERSION = "1.0.0"
+PLUGIN_AUTHOR = "Medeia"
+PLUGIN_DESCRIPTION = "Metadata scrapers (iTunes, Open Library, IMDb, MusicBrainz)."
+
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type, cast
 import html as html_std

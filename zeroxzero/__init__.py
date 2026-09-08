@@ -12,6 +12,9 @@ class ZeroXZero(Plugin):
     """File provider for 0x0.st."""
 
     PLUGIN_NAME = "0x0"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Upload files to 0x0.st."
     PLUGIN_ALIASES = ("zeroxzero",)
     SUPPORTED_CMDLETS = frozenset({"add-file"})
 

@@ -662,7 +662,10 @@ def _libgen_metadata_to_tags(meta: Dict[str, Any]) -> List[str]:
 
 
 class Libgen(Plugin):
-
+    PLUGIN_NAME = "libgen"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Library Genesis book search and download."
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
     TABLE_AUTO_STAGES = {
         "libgen": ["download-file"],

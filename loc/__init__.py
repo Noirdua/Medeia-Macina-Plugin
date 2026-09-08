@@ -14,6 +14,10 @@ class LOC(Plugin):
     Currently implements Chronicling America collection search via the LoC JSON API.
     """
 
+    PLUGIN_NAME = "loc"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Library of Congress / Chronicling America search."
     SUPPORTED_CMDLETS = frozenset({"search-file"})
 
     @property

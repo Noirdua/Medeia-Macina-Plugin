@@ -525,6 +525,9 @@ class ytdlp(TablePluginMixin, Plugin):
     """yt-dlp-backed search and direct download plugin."""
 
     PLUGIN_NAME = "ytdlp"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Search and download media with yt-dlp."
     PLUGIN_SYSTEM_REQUIRES = ("deno",)
     PLUGIN_ALIASES = ("youtube",)
     PLUGIN_UPLOADS = (

@@ -101,6 +101,9 @@ def _copy_with_progress(
 
 class Local(Plugin):
     PLUGIN_NAME = "local"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Local filesystem store."
     PLUGIN_ALIASES = ("filesystem", "fs")
     MULTI_INSTANCE = True
     SUPPORTED_CMDLETS = frozenset({"add-file", "search-file"})

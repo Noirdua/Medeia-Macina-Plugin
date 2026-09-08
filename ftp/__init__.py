@@ -39,6 +39,9 @@ def _safe_filename(name: Any) -> str:
 
 class FTP(Plugin):
     PLUGIN_NAME = "ftp"
+    PLUGIN_DESCRIPTION = "Connects to FTP enabled servers"
+    PLUGIN_AUTHOR = "medeia"
+    PLUGIN_VERSION = "1.0.0"
     URL = ("ftp://", "ftps://")
     MULTI_INSTANCE = True
     SUPPORTED_CMDLETS = frozenset({"add-file", "delete-file", "download-file", "search-file"})

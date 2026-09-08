@@ -52,6 +52,9 @@ def _extract_key(payload: Any) -> Optional[str]:
 class FileIO(Plugin):
     """File provider for file.io."""
     PLUGIN_NAME = "fileio"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Upload files to file.io."
     PLUGIN_ALIASES = ("file.io",)
     SUPPORTED_CMDLETS = frozenset({"add-file"})
 

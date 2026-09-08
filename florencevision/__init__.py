@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+PLUGIN_NAME = "florencevision"
+PLUGIN_VERSION = "1.0.0"
+PLUGIN_AUTHOR = "Medeia"
+PLUGIN_DESCRIPTION = "Local Florence-2 vision tagging."
+
 __all__ = [
     "FlorenceVisionTool",
     "FlorenceVisionDefaults",

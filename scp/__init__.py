@@ -48,6 +48,9 @@ from ._listing import (
 
 class SCP(Plugin):
     PLUGIN_NAME = "scp"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "SCP/SFTP file transfer."
     URL = ("scp://", "sftp://")
     SUPPORTED_CMDLETS = frozenset({"add-file", "download-file", "search-file"})
 

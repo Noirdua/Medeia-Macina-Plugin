@@ -11,6 +11,9 @@ class Bandcamp(Plugin):
     """Search provider for Bandcamp."""
 
     PLUGIN_NAME = "bandcamp"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Search and download Bandcamp music."
     PLUGIN_DEPENDS = ("playwright",)
     SUPPORTED_CMDLETS = frozenset({"search-file"})
     TABLE_AUTO_STAGES = {

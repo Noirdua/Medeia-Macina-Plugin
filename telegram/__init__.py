@@ -131,6 +131,10 @@ class Telegram(Plugin):
     api_hash=
     bot_token=
     """
+    PLUGIN_NAME = "telegram"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Telegram file search and download."
     URL = ("t.me", "telegram.me")
     SUPPORTED_CMDLETS = frozenset({"download-file"})
 

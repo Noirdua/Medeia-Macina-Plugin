@@ -65,6 +65,9 @@ def _format_total_seconds(seconds: Any) -> str:
 
 class Tidal(Plugin):
     PLUGIN_NAME = "tidal"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Search and download Tidal tracks."
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
 
     TABLE_AUTO_STAGES = {

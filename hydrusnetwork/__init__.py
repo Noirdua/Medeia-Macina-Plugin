@@ -40,6 +40,7 @@ class HydrusNetwork(Plugin):
     PLUGIN_ALIASES = ("hydrus",)
     PLUGIN_DESCRIPTION = "Connects to HydrusNetwork API enabled servers."
     PLUGIN_AUTHOR = "medeia"
+    PLUGIN_VERSION = "1.0.0"
     URL = ("hydrus://",)
     EXPOSE_AS_FILE_PROVIDER = True
     MULTI_INSTANCE = True

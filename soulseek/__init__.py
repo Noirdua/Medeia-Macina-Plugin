@@ -292,7 +292,10 @@ def _suppress_aioslsk_noise() -> Any:
 
 
 class Soulseek(Plugin):
-
+    PLUGIN_NAME = "soulseek"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Soulseek P2P search and download."
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
     TABLE_AUTO_STAGES = {
         "soulseek": ["download-file", "-plugin", "soulseek"],

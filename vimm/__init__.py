@@ -52,6 +52,10 @@ class Vimm(TablePluginMixin, Plugin):
     The code below implements these choices (and contains inline comments
     explaining specific decisions)."""
 
+    PLUGIN_NAME = "vimm"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "Vimm's Lair ROM vault search and download."
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
     URL = ("https://vimm.net/vault/",)
     URL_DOMAINS = ("vimm.net",)

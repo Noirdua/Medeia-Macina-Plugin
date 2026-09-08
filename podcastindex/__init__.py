@@ -30,6 +30,10 @@ def _get_podcastindex_credentials(config: Dict[str, Any]) -> Tuple[str, str]:
 class PodcastIndex(Plugin):
     """Search provider for PodcastIndex.org."""
 
+    PLUGIN_NAME = "podcastindex"
+    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_AUTHOR = "Medeia"
+    PLUGIN_DESCRIPTION = "PodcastIndex.org search and episode download."
     SUPPORTED_CMDLETS = frozenset({"search-file"})
     TABLE_AUTO_STAGES = {
         "podcastindex": ["download-file"],
