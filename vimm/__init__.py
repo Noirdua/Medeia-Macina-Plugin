@@ -20,7 +20,6 @@ from PluginCore.base import Plugin, SearchResult, parse_inline_query_arguments
 from PluginCore.inline_utils import resolve_filter
 from SYS.logger import debug, debug_panel
 from SYS.plugin_helpers import TablePluginMixin
-from plugins.playwright import PlaywrightTool
 
 
 class Vimm(TablePluginMixin, Plugin):
@@ -56,6 +55,7 @@ class Vimm(TablePluginMixin, Plugin):
     PLUGIN_VERSION = "1.0.0"
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = "Vimm's Lair ROM vault search and download."
+    PLUGIN_DEPENDS = ("playwright",)
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
     URL = ("https://vimm.net/vault/",)
     URL_DOMAINS = ("vimm.net",)
@@ -157,7 +157,7 @@ class Vimm(TablePluginMixin, Plugin):
     TABLE_SYSTEM_COLUMN = {"label": "Platform", "metadata_key": "system"}
 
     def validate(self) -> bool:
-        return True
+        return super().validate()
 
     def search(self, query: str, limit: int = 50, filters: Optional[Dict[str, Any]] = None, **kwargs: Any) -> List[SearchResult]:
         q = (query or "").strip()
@@ -790,6 +790,13 @@ class Vimm(TablePluginMixin, Plugin):
             cfg = load_config() or {}
         except Exception:
             cfg = {}
+
+        from PluginCore.registry import plugin_attr
+
+        PlaywrightTool = plugin_attr("playwright", "PlaywrightTool")
+        if PlaywrightTool is None:
+            debug("[vimm] playwright plugin is not installed")
+            return None
 
         tool = PlaywrightTool(cfg)
         result = tool.download_file(

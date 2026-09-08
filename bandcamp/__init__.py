@@ -238,7 +238,13 @@ class Bandcamp(Plugin):
         artist_url = chosen[0].get("url") or ""
 
         try:
-            from plugins.playwright import PlaywrightTool
+            from PluginCore.registry import plugin_attr
+
+            PlaywrightTool = plugin_attr("playwright", "PlaywrightTool")
+            if PlaywrightTool is None:
+                raise RuntimeError(
+                    "bandcamp requires the playwright plugin. Install with .plugin -add playwright"
+                )
 
             tool = PlaywrightTool({})
             tool.require()
@@ -296,7 +302,13 @@ class Bandcamp(Plugin):
         **kwargs: Any,
     ) -> List[SearchResult]:
         try:
-            from plugins.playwright import PlaywrightTool
+            from PluginCore.registry import plugin_attr
+
+            PlaywrightTool = plugin_attr("playwright", "PlaywrightTool")
+            if PlaywrightTool is None:
+                raise RuntimeError(
+                    "bandcamp requires the playwright plugin. Install with .plugin -add playwright"
+                )
 
             tool = PlaywrightTool({})
             tool.require()
@@ -390,5 +402,4 @@ class Bandcamp(Plugin):
         return results
 
     def validate(self) -> bool:
-        # Playwright is required for the provider to function
-        return True
+        return super().validate()

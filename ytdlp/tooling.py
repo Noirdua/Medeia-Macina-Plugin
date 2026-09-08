@@ -2609,7 +2609,11 @@ def _fetch_bandcamp_html_http(url: str) -> str:
 
 def _fetch_bandcamp_html_playwright(url: str) -> str:
     try:
-        from plugins.playwright import PlaywrightTool
+        from PluginCore.registry import plugin_attr
+
+        PlaywrightTool = plugin_attr("playwright", "PlaywrightTool")
+        if PlaywrightTool is None:
+            raise RuntimeError("playwright plugin is not installed")
     except Exception as exc:
         debug(f"[ytdlp] playwright unavailable for bandcamp: {exc}")
         return ""
