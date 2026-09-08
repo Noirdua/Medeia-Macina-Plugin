@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sys
-from urllib.parse import urlparse
-from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus, urlparse
+from typing import Any, Dict, List, Optional, Tuple
 
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import log, debug, debug_panel
@@ -293,14 +293,107 @@ class Bandcamp(Plugin):
 
         return True
 
+    @staticmethod
+    def _split_search_query(query: str) -> Tuple[str, str]:
+        text = str(query or "").strip()
+        lowered = text.lower()
+        if lowered.startswith("artist:"):
+            return text.split(":", 1)[1].strip().strip('"'), "b"
+        if lowered.startswith("album:"):
+            return text.split(":", 1)[1].strip().strip('"'), "a"
+        if lowered.startswith("track:"):
+            return text.split(":", 1)[1].strip().strip('"'), "t"
+        return text, "a"
+
+    def _result_from_api_hit(self, hit: Dict[str, Any]) -> Optional[SearchResult]:
+        kind_code = str(hit.get("type") or "").strip().lower()
+        kind = {"b": "artist", "a": "album", "t": "track"}.get(kind_code, "item")
+        title = str(hit.get("name") or "").strip()
+        artist = str(hit.get("band_name") or hit.get("location") or "").strip() or "Unknown"
+        target = str(hit.get("item_url_path") or hit.get("item_url_root") or "").strip()
+        if not title or not target:
+            return None
+        base_url = self._base_url(str(hit.get("item_url_root") or target))
+        selection_args = self._download_selection_args(target, kind)
+        selection_action = (["download-file"] + selection_args) if selection_args else None
+        return SearchResult(
+            table="bandcamp",
+            title=title,
+            path=target,
+            detail=f"By: {artist}" if kind != "artist" else str(hit.get("location") or ""),
+            annotations=[kind],
+            media_kind="audio",
+            columns=[
+                ("Title", title),
+                ("Location", artist if kind != "artist" else str(hit.get("location") or artist)),
+                ("Type", kind),
+                ("Url", target),
+            ],
+            full_metadata={
+                "artist": artist if kind != "artist" else title,
+                "type": kind,
+                "url": target,
+                "artist_url": base_url,
+            },
+            selection_args=selection_args,
+            selection_action=selection_action,
+        )
+
+    def _search_api(self, query: str, search_filter: str, limit: int) -> List[SearchResult]:
+        from API.HTTP import HTTPClient
+
+        payload = {
+            "search_text": query,
+            "search_filter": search_filter,
+            "full_page": True,
+            "fan_id": None,
+        }
+        debug_panel(
+            "bandcamp search",
+            [("query", query), ("filter", search_filter), ("limit", limit)],
+            border_style="cyan",
+        )
+        with HTTPClient(timeout=20.0) as client:
+            response = client.post(
+                "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic",
+                json=payload,
+                headers={
+                    "Accept": "application/json",
+                    "Origin": "https://bandcamp.com",
+                    "Referer": "https://bandcamp.com/search",
+                },
+            )
+            data = response.json() if response is not None else None
+        hits = ((data or {}).get("auto") or {}).get("results") or []
+        results: List[SearchResult] = []
+        for hit in hits:
+            if not isinstance(hit, dict):
+                continue
+            item = self._result_from_api_hit(hit)
+            if item is None:
+                continue
+            results.append(item)
+            if len(results) >= max(1, int(limit)):
+                break
+        return results
+
     def search(
         self,
         query: str,
         limit: int = 50,
-        filters: Optional[Dict[str,
-                               Any]] = None,
+        filters: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> List[SearchResult]:
+        text, search_filter = self._split_search_query(query)
+        if not text:
+            return []
+        try:
+            results = self._search_api(text, search_filter, limit)
+            if results:
+                return results
+        except Exception as exc:
+            debug(f"[bandcamp] API search failed: {exc}")
+
         try:
             from PluginCore.registry import plugin_attr
 
@@ -312,16 +405,12 @@ class Bandcamp(Plugin):
 
             tool = PlaywrightTool({})
             tool.require()
+            item_type = search_filter if search_filter in {"a", "b", "t"} else "a"
+            search_url = (
+                f"https://bandcamp.com/search?q={quote_plus(text)}&item_type={item_type}"
+            )
             with tool.open_page(headless=True) as page:
-                if query.strip().lower().startswith("artist:"):
-                    artist_name = query[7:].strip().strip('"')
-                    search_url = f"https://bandcamp.com/search?q={artist_name}&item_type=b"
-                else:
-                    search_url = f"https://bandcamp.com/search?q={query}&item_type=a"
-
-                results = self._scrape_url(page, search_url, limit)
-                return results
-
+                return self._scrape_url(page, search_url, limit)
         except Exception as exc:
             log(f"[bandcamp] Search error: {exc}", file=sys.stderr)
             return []
@@ -338,6 +427,17 @@ class Bandcamp(Plugin):
 
         page.goto(url)
         page.wait_for_load_state("domcontentloaded")
+        try:
+            page.wait_for_selector(".searchresult", timeout=15_000)
+        except Exception:
+            title = ""
+            try:
+                title = str(page.title() or "")
+            except Exception:
+                title = ""
+            if "challenge" in title.lower() or "just a moment" in title.lower():
+                log("[bandcamp] Search page blocked by a browser challenge", file=sys.stderr)
+            return []
 
         results: List[SearchResult] = []
 
