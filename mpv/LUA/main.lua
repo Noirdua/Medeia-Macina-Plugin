@@ -4103,6 +4103,9 @@ local function _is_ytdlp_url(u)
     if not low:match('^https?://') then
         return false
     end
+    if low:find('youtube.com', 1, true) or low:find('youtu.be', 1, true) or low:find('googlevideo.com', 1, true) then
+        return true
+    end
 
     -- Fast exclusions for things we know are not meant for yt-dlp format switching
     if low:find('/get_files/file', 1, true) then return false end
@@ -6860,7 +6863,7 @@ function M.show_menu()
     _lua_log('[MENU] M.show_menu called')
     M._reset_uosc_input_state('main-menu')
     
-    local target = _current_target()
+    local target = (_current_url_for_web_actions and _current_url_for_web_actions()) or _current_target()
     local selected_store = trim(tostring(_get_selected_store() or ''))
     if not M._store_name_is_visible_in_mpv(selected_store) then
         selected_store = ''

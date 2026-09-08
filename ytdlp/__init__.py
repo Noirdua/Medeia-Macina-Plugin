@@ -852,6 +852,7 @@ class ytdlp(TablePluginMixin, Plugin):
                     merged["Cookie"] = cookie_hdr
                 holder[0] = {
                     "url": video_url,
+                    "page_url": url_str,
                     "audio_url": audio_url,
                     "title": str(info.get("title") or "").strip(),
                     "headers": merged,

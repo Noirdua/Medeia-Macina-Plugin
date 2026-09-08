@@ -562,6 +562,9 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     audio_url = str(payload.get("audio_url") or "").strip()
     if audio_url:
         opts["audio-file"] = audio_url
+    page_url = str(payload.get("page_url") or "").strip()
+    if page_url:
+        _helper_send(["set_property", "user-data/medeia-current-web-url", page_url], "web-url")
     _helper_send(["set_property", "pause", "no"], "unpause")
     ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
     _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} ytdl=no title={title}")
