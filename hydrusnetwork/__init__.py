@@ -38,6 +38,8 @@ def get_store_backend_classes() -> Dict[str, Any]:
 class HydrusNetwork(Plugin):
     PLUGIN_NAME = "hydrusnetwork"
     PLUGIN_ALIASES = ("hydrus",)
+    PLUGIN_DESCRIPTION = "Connects to HydrusNetwork API enabled servers."
+    PLUGIN_AUTHOR = "medeia"
     URL = ("hydrus://",)
     EXPOSE_AS_FILE_PROVIDER = True
     MULTI_INSTANCE = True
