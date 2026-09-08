@@ -2194,21 +2194,20 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         ytdl_bin = _yt_dlp_executable()
         cookie = resolve_cookies_path(load_config() or {})
-        raw_parts = [
-            "write-subs=",
-            "write-auto-subs=",
-            "sub-langs=[en.*,en,-live_chat]",
-            "extractor-args=youtube:player_client=tv,web",
-        ]
+        raw_opts = {
+            "write-subs": "",
+            "write-auto-subs": "",
+            "sub-langs": "en",
+            "extractor-args": "youtube:player_client=tv",
+        }
         if cookie is not None:
-            raw_parts.append("cookies=" + str(cookie).replace("\\", "/"))
-        raw = ",".join(raw_parts)
+            raw_opts["cookies"] = str(cookie).replace("\\", "/")
         if ytdl_bin:
             _send_helper_command(["set_property", "ytdl-path", ytdl_bin], "ytdl-path")
             _send_helper_command(["set_property", "options/ytdl-path", ytdl_bin], "ytdl-path-opt")
             _append_helper_log(f"[helper] ytdl-path={ytdl_bin}")
-        _send_helper_command(["set_property", "ytdl-raw-options", raw], "ytdl-raw")
-        _send_helper_command(["set_property", "options/ytdl-raw-options", raw], "ytdl-raw-opt")
+        _send_helper_command(["set_property", "ytdl-raw-options", raw_opts], "ytdl-raw")
+        _send_helper_command(["set_property", "options/ytdl-raw-options", raw_opts], "ytdl-raw-opt")
         _send_helper_command(["set_property", "ytdl-format", "bv*+ba/b"], "ytdl-fmt")
         _append_helper_log("[helper] pinned ytdl-path/cookies")
     except Exception as exc:

@@ -4198,42 +4198,29 @@ _current_url_for_web_actions = function()
     return tostring(target)
 end
 
+function M._ytdl_raw_options_table()
+    local t = {
+        ['write-subs'] = '',
+        ['write-auto-subs'] = '',
+        ['sub-langs'] = 'en',
+        ['extractor-args'] = 'youtube:player_client=tv',
+    }
+    local cookie = _ytdlp_cookiefile_path()
+    if cookie ~= '' then
+        t['cookies'] = cookie
+    end
+    return t
+end
+
 function M._build_web_ytdl_raw_options()
-    local raw = trim(tostring(mp.get_property('ytdl-raw-options') or ''))
-    if raw == '' then
-        raw = trim(tostring(mp.get_property('options/ytdl-raw-options') or ''))
+    local parts = {}
+    for key, value in pairs(M._ytdl_raw_options_table()) do
+        parts[#parts + 1] = tostring(key) .. '=' .. tostring(value or '')
     end
-
-    local lower = raw:lower()
-    local extra = {}
-
-    if not lower:find('write%-subs=', 1) then
-        extra[#extra + 1] = 'write-subs='
+    if #parts == 0 then
+        return nil
     end
-    if not lower:find('write%-auto%-subs=', 1) then
-        extra[#extra + 1] = 'write-auto-subs='
-    end
-    if not lower:find('sub%-langs=', 1) then
-        extra[#extra + 1] = 'sub-langs=[en.*,en,-live_chat]'
-    end
-    if not lower:find('sub%-format=', 1) then
-        extra[#extra + 1] = 'sub-format=srt/vtt/best'
-    end
-    if not lower:find('cookies=', 1) then
-        local cookie = _ytdlp_cookiefile_path()
-        if cookie ~= '' then
-            extra[#extra + 1] = 'cookies=' .. cookie
-        end
-    end
-
-
-    if #extra == 0 then
-        return raw ~= '' and raw or nil
-    end
-    if raw ~= '' then
-        return raw .. ',' .. table.concat(extra, ',')
-    end
-    return table.concat(extra, ',')
+    return table.concat(parts, ',')
 end
 
 function M._prime_web_subtitle_global_defaults(reason)
@@ -4241,8 +4228,8 @@ function M._prime_web_subtitle_global_defaults(reason)
     if not raw or raw == '' then
         return false
     end
-    pcall(mp.set_property, 'options/ytdl-raw-options', raw)
-    pcall(mp.set_property, 'ytdl-raw-options', raw)
+    pcall(mp.set_property_native, 'options/ytdl-raw-options', M._ytdl_raw_options_table())
+    pcall(mp.set_property_native, 'ytdl-raw-options', M._ytdl_raw_options_table())
     _lua_log('web-subtitles: primed global ytdl defaults reason=' .. tostring(reason or 'startup'))
     return true
 end
@@ -4277,10 +4264,7 @@ function M._apply_web_subtitle_load_defaults(reason, preferred_target)
         M._prepare_ytdl_format_for_web_load(target, reason or 'on-load')
     end
 
-    local raw = M._build_web_ytdl_raw_options()
-    if raw and raw ~= '' then
-        pcall(mp.set_property, 'file-local-options/ytdl-raw-options', raw)
-    end
+    pcall(mp.set_property_native, 'file-local-options/ytdl-raw-options', M._ytdl_raw_options_table())
     pcall(mp.set_property, 'file-local-options/sub-visibility', 'yes')
     pcall(mp.set_property, 'file-local-options/sid', 'auto')
     pcall(mp.set_property, 'file-local-options/track-auto-selection', 'yes')
