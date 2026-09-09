@@ -39,7 +39,8 @@ def _safe_filename(name: Any) -> str:
 
 class FTP(Plugin):
     PLUGIN_NAME = "ftp"
-    PLUGIN_DESCRIPTION = "Connects to FTP enabled servers"
+    PLUGIN_DESCRIPTION = "Classic FTP/FTPS file transfer (not SFTP)."
+    PLUGIN_ALIASES = ("ftps",)
     PLUGIN_AUTHOR = "medeia"
     PLUGIN_VERSION = "1.0.0"
     URL = ("ftp://", "ftps://")
