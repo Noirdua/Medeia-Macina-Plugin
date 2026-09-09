@@ -154,7 +154,17 @@ class Local(Plugin):
         instance_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         entry = dict(conf or {})
-        path_value = str(entry.get("path") or entry.get("PATH") or "").strip()
+        path_value = ""
+        for key in ("path", "PATH", "destination", "dest", "destination_path"):
+            path_value = str(entry.get(key) or "").strip()
+            if path_value:
+                break
+        if not path_value:
+            for raw in entry.values():
+                text = str(raw or "").strip()
+                if self._looks_like_path(text):
+                    path_value = text
+                    break
         return {
             "instance": str(instance_name or entry.get("_instance_name") or "").strip() or None,
             "path": path_value,
