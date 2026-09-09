@@ -627,6 +627,8 @@ class OpenLibraryOps:
         "openlibrary.edition": ["download-file"],
     }
     QUERY_ARG_CHOICES = {
+        "book": (),
+        "author": (),
         "quality": ["high", "medium", "low"],
         "language": [
             "english", "spanish", "french", "german", "italian",
@@ -1759,26 +1761,44 @@ class OpenLibraryOps:
         filters = filters or {}
 
         parsed = parse_query(query)
-        isbn = get_field(parsed, "isbn")
-        author = get_field(parsed, "author")
+        isbn = get_field(parsed, "isbn") or str((filters or {}).get("isbn") or "").strip()
+        author = (
+            get_field(parsed, "author")
+            or str((filters or {}).get("author") or (filters or {}).get("authors") or "").strip()
+        )
         title = get_field(parsed, "title")
         book = get_field(parsed, "book") or str((filters or {}).get("book") or "").strip()
         free_text = get_free_text(parsed)
+        title_text = (title or book or "").strip()
 
-        q = (isbn or title or author or book or free_text or query or "").strip()
+        q = (isbn or title_text or author or free_text or query or "").strip()
         if not q:
             return []
 
-        if _looks_like_isbn(q):
-            q = f"isbn:{q.replace('-', '')}"
+        params: Dict[str, Any] = {"limit": int(limit)}
+        if isbn or _looks_like_isbn(q):
+            isbn_value = (isbn or q).replace("-", "")
+            if _looks_like_isbn(isbn_value):
+                params["isbn"] = isbn_value
+            else:
+                params["q"] = q
+        elif title_text and author:
+            params["title"] = title_text
+            params["author"] = author
+        elif author and not title_text:
+            params["author"] = author
+            leftover = str(free_text or "").strip()
+            if leftover and leftover.lower() != author.lower():
+                params["q"] = leftover
+        elif title_text:
+            params["title"] = title_text
+        else:
+            params["q"] = q
 
         try:
             resp = self._session.get(
                 "https://openlibrary.org/search.json",
-                params={
-                    "q": q,
-                    "limit": int(limit)
-                },
+                params=params,
                 timeout=10,
             )
             resp.raise_for_status()

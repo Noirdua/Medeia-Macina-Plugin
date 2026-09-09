@@ -64,6 +64,7 @@ class ArchiveOrg(OpenLibraryOps, InternetArchiveOps, Plugin):
     }
     QUERY_ARG_CHOICES = {
         "book": (),
+        "author": (),
         "quality": ["high", "medium", "low"],
         "language": [
             "english",
@@ -190,7 +191,9 @@ class ArchiveOrg(OpenLibraryOps, InternetArchiveOps, Plugin):
             if not key or not value:
                 free_text.append(segment)
                 continue
-            if key in self.QUERY_ARG_CHOICES:
+            if key in {"author", "authors"}:
+                parsed_args["author"] = value
+            elif key in self.QUERY_ARG_CHOICES:
                 parsed_args[key] = value
             else:
                 free_text.append(segment)
@@ -198,15 +201,18 @@ class ArchiveOrg(OpenLibraryOps, InternetArchiveOps, Plugin):
         normalized = " ".join(part for part in free_text if part).strip()
         if not normalized:
             book = str(parsed_args.get("book") or "").strip()
-            if book:
-                normalized = book
+            author = str(parsed_args.get("author") or "").strip()
+            if book and author:
+                normalized = f"{book} {author}"
+            else:
+                normalized = book or author
         return normalized, parsed_args
 
     @staticmethod
     def _strip_ol_prefix(query: str) -> str:
         text = str(query or "").strip()
         low = text.lower()
-        for prefix in ("openlibrary:", "ol:", "book:"):
+        for prefix in ("openlibrary:", "ol:", "book:", "author:", "authors:"):
             if low.startswith(prefix):
                 return text[len(prefix):].strip().strip('"').strip("'")
         return text
@@ -225,12 +231,16 @@ class ArchiveOrg(OpenLibraryOps, InternetArchiveOps, Plugin):
         filters = filters or {}
         if str(filters.get("book") or "").strip():
             return True
+        if str(filters.get("author") or filters.get("authors") or "").strip():
+            return True
         view = str(filters.get("view") or filters.get("source") or "").strip().lower()
         if view in _OL_VIEWS:
             return True
         q = str(query or "").strip()
         low = q.lower()
         if low.startswith("openlibrary:") or low.startswith("ol:") or low.startswith("book:"):
+            return True
+        if low.startswith("author:") or low.startswith("authors:"):
             return True
         if _looks_like_isbn(q):
             return True
@@ -280,12 +290,17 @@ class ArchiveOrg(OpenLibraryOps, InternetArchiveOps, Plugin):
         filters = dict(filters or {})
         raw_query = str(query or "").strip()
         book = str(filters.get("book") or "").strip()
+        author = str(filters.get("author") or filters.get("authors") or "").strip()
+        if author:
+            filters["author"] = author
         if book and (not raw_query or raw_query == "*"):
             raw_query = book
+        elif author and (not raw_query or raw_query == "*"):
+            raw_query = author
         if self._use_openlibrary_search(raw_query, filters):
             if str(filters.get("view") or "").strip().lower() not in _OL_VIEWS:
                 filters["view"] = "openlibrary"
-            ol_query = book or self._strip_ol_prefix(raw_query)
+            ol_query = book or author or self._strip_ol_prefix(raw_query)
             return OpenLibraryOps.search(
                 self,
                 ol_query,
