@@ -449,10 +449,27 @@ class Torrent(Plugin):
                 "default": "alldebrid",
                 "help": "alldebrid sends magnets to AllDebrid. libtorrent downloads locally.",
             },
+            {
+                "key": "incomplete_dir",
+                "label": "Incomplete folder",
+                "type": "path",
+                "default": "",
+                "help": "In-progress torrents. Empty = plugins/torrent/incomplete",
+            },
+            {
+                "key": "complete_dir",
+                "label": "Completed folder",
+                "type": "path",
+                "default": "",
+                "help": "Finished torrents. Empty = plugins/torrent/complete",
+            },
         ]
 
     def config_helper_text(self) -> str:
-        return "Choose AllDebrid for debrid unlocks, or libtorrent for a local BitTorrent download."
+        return (
+            "Choose AllDebrid or libtorrent. "
+            "libtorrent stores incomplete/complete under the plugin folder by default."
+        )
 
     def _downloader_mode(self) -> str:
         bags: List[Dict[str, Any]] = []
@@ -484,6 +501,43 @@ class Torrent(Plugin):
         if mode in {"libtorrent", "local", "internal", "bittorrent"}:
             return "libtorrent"
         return "alldebrid"
+
+    def _config_bag(self) -> Dict[str, Any]:
+        bags: List[Dict[str, Any]] = []
+        try:
+            root = self.plugin_config_root()
+            if isinstance(root, dict) and root:
+                bags.append(root)
+                nested = root.get("default")
+                if isinstance(nested, dict):
+                    bags.append(nested)
+        except Exception:
+            pass
+        if isinstance(self.config, dict):
+            plugin_cfg = self.config.get("plugin")
+            if isinstance(plugin_cfg, dict):
+                entry = plugin_cfg.get("torrent") or plugin_cfg.get("Torrent")
+                if isinstance(entry, dict):
+                    bags.append(entry)
+        merged: Dict[str, Any] = {}
+        for bag in reversed(bags):
+            merged.update(bag)
+        return merged
+
+    def _storage_dirs(self) -> tuple[Path, Path]:
+        from plugins.torrent.engine import default_dirs
+
+        incomplete, complete, _state = default_dirs()
+        bag = self._config_bag()
+        inc = str(bag.get("incomplete_dir") or bag.get("Incomplete folder") or "").strip()
+        com = str(bag.get("complete_dir") or bag.get("Completed folder") or "").strip()
+        if inc:
+            incomplete = Path(inc).expanduser()
+        if com:
+            complete = Path(com).expanduser()
+        incomplete.mkdir(parents=True, exist_ok=True)
+        complete.mkdir(parents=True, exist_ok=True)
+        return incomplete, complete
 
     @property
     def preserve_order(self) -> bool:
@@ -604,7 +658,10 @@ class Torrent(Plugin):
         try:
             from plugins.torrent.engine import get_engine
 
-            job = get_engine().add(magnet, Path(output_dir), title)
+            incomplete, complete = self._storage_dirs()
+            engine = get_engine()
+            engine.set_dirs(incomplete, complete)
+            job = engine.add(magnet, incomplete, title)
         except Exception as exc:
             log(f"[torrent] libtorrent unavailable. pip install libtorrent", file=sys.stderr)
             self._libtorrent_queued = True

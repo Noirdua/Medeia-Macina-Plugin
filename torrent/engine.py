@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -102,6 +103,20 @@ def _fmt_size(n: int) -> str:
     return f"{size:.0f} B"
 
 
+def plugin_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def default_dirs() -> tuple[Path, Path, Path]:
+    root = plugin_root()
+    incomplete = root / "incomplete"
+    complete = root / "complete"
+    state = root / "state"
+    for path in (incomplete, complete, state):
+        path.mkdir(parents=True, exist_ok=True)
+    return incomplete, complete, state
+
+
 class TorrentEngine:
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -111,6 +126,14 @@ class TorrentEngine:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._seq = 0
+        self._incomplete, self._complete, self._state = default_dirs()
+        self._last_resume = 0.0
+
+    def set_dirs(self, incomplete: Path, complete: Path) -> None:
+        self._incomplete = Path(incomplete)
+        self._complete = Path(complete)
+        self._incomplete.mkdir(parents=True, exist_ok=True)
+        self._complete.mkdir(parents=True, exist_ok=True)
 
     def _session(self) -> Any:
         if self._ses is not None:
@@ -146,23 +169,161 @@ class TorrentEngine:
             pass
         self._ses = ses
         self._stop.clear()
+        self._restore()
         self._thread = threading.Thread(target=self._loop, name="torrent-engine", daemon=True)
         self._thread.start()
         return ses
 
-    def add(self, magnet: str, output_dir: Path, title: str) -> TorrentJob:
+    def _state_file(self) -> Path:
+        self._state.mkdir(parents=True, exist_ok=True)
+        return self._state / "jobs.json"
+
+    def _resume_file(self, job_id: str) -> Path:
+        self._state.mkdir(parents=True, exist_ok=True)
+        return self._state / f"{job_id}.resume"
+
+    def _persist(self) -> None:
+        rows = []
+        with self._lock:
+            for job_id in self._order:
+                job = self._jobs.get(job_id)
+                if job is None:
+                    continue
+                rows.append(
+                    {
+                        "job_id": job.job_id,
+                        "title": job.title,
+                        "magnet": job.magnet,
+                        "save_path": str(job.save_path),
+                        "paused": job.paused,
+                        "status": job.status,
+                    }
+                )
+        try:
+            self._state_file().write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _write_resume(self, job: TorrentJob) -> None:
+        handle = job.handle
+        if handle is None:
+            return
+        try:
+            lt = _lt()
+            if hasattr(handle, "write_resume_data") and hasattr(lt, "write_resume_data_buf"):
+                payload = lt.write_resume_data_buf(handle.write_resume_data())
+                self._resume_file(job.job_id).write_bytes(payload)
+                return
+            if hasattr(handle, "save_resume_data"):
+                handle.save_resume_data()
+        except Exception:
+            pass
+
+    def _add_handle(self, magnet: str, save_dir: Path, resume_path: Optional[Path] = None) -> Any:
         lt = _lt()
         ses = self._session()
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        save_dir = unique_path(output_dir / sanitize_filename(title or "torrent"))
         save_dir.mkdir(parents=True, exist_ok=True)
+        if resume_path is not None and resume_path.is_file() and hasattr(lt, "read_resume_data"):
+            try:
+                atp = lt.read_resume_data(resume_path.read_bytes())
+                atp.save_path = str(save_dir)
+                return ses.add_torrent(atp)
+            except Exception:
+                pass
         if hasattr(lt, "parse_magnet_uri") and hasattr(ses, "add_torrent"):
             params = lt.parse_magnet_uri(magnet)
             params.save_path = str(save_dir)
-            handle = ses.add_torrent(params)
-        else:
-            handle = lt.add_magnet_uri(ses, magnet, {"save_path": str(save_dir)})
+            return ses.add_torrent(params)
+        return lt.add_magnet_uri(ses, magnet, {"save_path": str(save_dir)})
+
+    def _restore(self) -> None:
+        path = self._state_file()
+        if not path.is_file():
+            return
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(rows, list):
+            return
+        max_id = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            job_id = str(row.get("job_id") or "").strip()
+            magnet = str(row.get("magnet") or "").strip()
+            title = str(row.get("title") or "torrent").strip() or "torrent"
+            save_path = Path(str(row.get("save_path") or ""))
+            if not job_id or not magnet:
+                continue
+            try:
+                handle = self._add_handle(magnet, save_path, self._resume_file(job_id))
+            except Exception:
+                continue
+            job = TorrentJob(
+                job_id=job_id,
+                title=title,
+                magnet=magnet,
+                save_path=save_path if save_path.as_posix() else self._incomplete / sanitize_filename(title),
+                handle=handle,
+                paused=bool(row.get("paused")),
+                status=str(row.get("status") or "queued"),
+            )
+            if job.paused:
+                try:
+                    handle.pause()
+                except Exception:
+                    pass
+            with self._lock:
+                self._jobs[job_id] = job
+                if job_id not in self._order:
+                    self._order.append(job_id)
+            try:
+                from SYS import plugin_jobs
+
+                plugin_jobs.submit(
+                    "torrent",
+                    title,
+                    job_id=job_id,
+                    pause=lambda jid=job_id: self.pause(jid),
+                    resume=lambda jid=job_id: self.resume(jid),
+                    cancel=lambda jid=job_id: self.remove(jid),
+                    snapshot=job.snapshot,
+                )
+            except Exception:
+                pass
+            try:
+                max_id = max(max_id, int(job_id))
+            except Exception:
+                pass
+        self._seq = max(self._seq, max_id)
+
+    def _maybe_complete(self, job: TorrentJob) -> None:
+        if job.status != "done" or job.handle is None:
+            return
+        try:
+            incomplete_root = self._incomplete.resolve()
+            current = Path(job.save_path).resolve()
+            if incomplete_root not in current.parents and current != incomplete_root:
+                if self._complete.resolve() in current.parents or current.parent == self._complete.resolve():
+                    return
+        except Exception:
+            pass
+        dest = unique_path(self._complete / Path(job.save_path).name)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            job.handle.move_storage(str(dest))
+            job.save_path = dest
+            self._persist()
+        except Exception:
+            pass
+
+    def add(self, magnet: str, output_dir: Path, title: str) -> TorrentJob:
+        output_dir = Path(output_dir) if output_dir else self._incomplete
+        output_dir.mkdir(parents=True, exist_ok=True)
+        save_dir = unique_path(output_dir / sanitize_filename(title or "torrent"))
+        save_dir.mkdir(parents=True, exist_ok=True)
+        handle = self._add_handle(magnet, save_dir)
         with self._lock:
             self._seq += 1
             job_id = str(self._seq)
@@ -176,6 +337,7 @@ class TorrentEngine:
             )
             self._jobs[job_id] = job
             self._order.append(job_id)
+        self._persist()
         try:
             from SYS import plugin_jobs
 
@@ -208,6 +370,7 @@ class TorrentEngine:
             job.handle.pause()
             job.paused = True
             job.status = "paused"
+            self._persist()
             return True
         except Exception:
             return False
@@ -220,6 +383,7 @@ class TorrentEngine:
             job.handle.resume()
             job.paused = False
             job.status = "downloading"
+            self._persist()
             return True
         except Exception:
             return False
@@ -237,6 +401,11 @@ class TorrentEngine:
         with self._lock:
             self._jobs.pop(str(job_id), None)
             self._order = [i for i in self._order if i != str(job_id)]
+        try:
+            self._resume_file(str(job_id)).unlink(missing_ok=True)
+        except Exception:
+            pass
+        self._persist()
         return True
 
     def _loop(self) -> None:
@@ -279,10 +448,17 @@ class TorrentEngine:
                 if bool(getattr(st, "is_seeding", False)) or job.progress >= 0.999:
                     job.status = "done"
                     job.progress = 1.0
+                    self._maybe_complete(job)
                 elif not has_meta:
                     job.status = "metadata"
                 else:
                     job.status = "downloading"
+            now = time.monotonic()
+            if now - self._last_resume > 15:
+                self._last_resume = now
+                for job in jobs:
+                    self._write_resume(job)
+                self._persist()
 
 
 _ENGINE: Optional[TorrentEngine] = None
