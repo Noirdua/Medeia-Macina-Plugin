@@ -694,7 +694,31 @@ class Libgen(Plugin):
         "libgen.st",
     )
     URL = URL_DOMAINS
-    """Search provider for Library Genesis books."""
+
+    def extract_query_arguments(self, query: str) -> Tuple[str, Dict[str, Any]]:
+        cleaned = str(query or "").strip()
+        if not cleaned:
+            return "", {}
+        parsed: Dict[str, Any] = {}
+        free: List[str] = []
+        for segment in cleaned.replace(";", ",").split(","):
+            part = segment.strip()
+            if not part:
+                continue
+            sep = part.find(":")
+            if sep <= 0:
+                free.append(part)
+                continue
+            key = part[:sep].strip().lower()
+            value = part[sep + 1:].strip().strip('"').strip("'")
+            if key in self.QUERY_ARG_CHOICES and value:
+                parsed[key] = value
+            else:
+                free.append(part)
+        normalized = " ".join(free).strip()
+        if not normalized:
+            normalized = str(parsed.get("title") or parsed.get("author") or parsed.get("isbn") or "").strip()
+        return normalized, parsed
 
     def search(
         self,
@@ -1184,15 +1208,17 @@ class LibgenSearch:
             "req": query,
             "res": max(1, min(100, int(limit) if limit else 50)),
             "column": str(column or "def").strip() or "def",
-            "phrase": 1,
+            "phrase": 0 if str(column or "def") != "identifier" else 1,
         }
 
         resp = self.session.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
 
         data = resp.json()
+        if isinstance(data, dict) and data.get("error"):
+            raise ValueError(str(data.get("error")))
         if not isinstance(data, list):
-            return []
+            raise ValueError("json.php did not return a result list")
 
         results: List[Dict[str, Any]] = []
         for item in data:
@@ -1284,22 +1310,24 @@ class LibgenSearch:
             _call(log_info, f"[libgen] Trying mirror: {mirror}")
 
             try:
-                # Try JSON first on *all* mirrors (including .gl/.li), then fall back to HTML scraping.
                 results: List[Dict[str, Any]] = []
-                try:
-                    results = self._search_libgen_json(
-                        mirror,
-                        query,
-                        limit,
-                        column=column,
-                        timeout=request_timeout
-                    )
-                    if results:
-                        _call(log_info, f"[libgen] Using JSON API: {mirror}")
-                        return results
-                    continue
-                except Exception:
-                    results = []
+                json_searchable = not any(
+                    host in mirror for host in ("libgen.gl", "libgen.li")
+                )
+                if json_searchable:
+                    try:
+                        results = self._search_libgen_json(
+                            mirror,
+                            query,
+                            limit,
+                            column=column,
+                            timeout=request_timeout
+                        )
+                        if results:
+                            _call(log_info, f"[libgen] Using JSON API: {mirror}")
+                            return results
+                    except Exception:
+                        results = []
 
                 if not results:
                     if not has_lxml:
@@ -1711,6 +1739,28 @@ def search_libgen(
         return []
 
 
+def _get_php_url_from_ads_html(base_url: str, html: str, md5: str = "") -> Optional[str]:
+    if not html:
+        return None
+    md5 = str(md5 or _libgen_md5_from_url(base_url) or "").strip()
+    if md5:
+        match = re.search(
+            rf"get\.php\?md5={re.escape(md5)}&key=([A-Za-z0-9]+)",
+            html,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return urljoin(base_url, f"get.php?md5={md5}&key={match.group(1)}")
+    match = re.search(
+        r"href\s*=\s*['\"]([^'\"]*get\.php\?md5=[a-fA-F0-9]{32}[^'\"]*)['\"]",
+        html,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return urljoin(base_url, html_std.unescape(match.group(1)))
+    return None
+
+
 def _resolve_download_url(
     session: requests.Session,
     url: str,
@@ -1783,6 +1833,34 @@ def _resolve_download_url(
                 if href and not href.lower().startswith("javascript:"):
                     return href
         return None
+
+    md5 = _libgen_md5_from_url(current_url)
+    if md5:
+        ads_hosts = []
+        try:
+            parsed_start = urlparse(current_url)
+            if parsed_start.netloc:
+                ads_hosts.append(f"{parsed_start.scheme or 'https'}://{parsed_start.netloc}")
+        except Exception:
+            pass
+        for extra in ("https://libgen.gl", "https://libgen.li"):
+            if extra not in ads_hosts:
+                ads_hosts.append(extra)
+        from API.HTTP import HTTPClient
+
+        try:
+            with HTTPClient(timeout=20.0, retries=1) as client:
+                for host in ads_hosts:
+                    ads_url = f"{host}/ads.php?md5={md5}"
+                    try:
+                        resp = client.get(ads_url)
+                    except Exception:
+                        continue
+                    get_url = _get_php_url_from_ads_html(ads_url, str(getattr(resp, "text", "") or ""), md5)
+                    if get_url:
+                        return get_url, ads_url
+        except Exception:
+            pass
 
     for idx in range(10):
         if current_url in visited:
@@ -1992,22 +2070,7 @@ def download_from_mirror(
 
         headers: Dict[str, str] = {}
         ua = str((session.headers or {}).get("User-Agent") or "")
-        with HTTPClient(timeout=120.0, retries=5, user_agent=ua or "Mozilla/5.0") as client:
-            try:
-                head = client._request(
-                    "HEAD",
-                    download_url,
-                    headers=req_headers,
-                    follow_redirects=True,
-                    raise_for_status=False,
-                )
-                headers = dict(getattr(head, "headers", {}) or {})
-                ct = str(headers.get("content-type", "")).lower()
-                if "text/html" in ct:
-                    _call(log_error, "Final URL returned HTML, not a file.")
-                    return False, None
-            except Exception:
-                headers = {}
+        with HTTPClient(timeout=120.0, retries=2, user_agent=ua or "Mozilla/5.0") as client:
             client.download(
                 download_url,
                 str(output_path),
