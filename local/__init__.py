@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from PluginCore.base import Plugin, SearchResult
 from SYS.metadata import (
@@ -107,6 +108,11 @@ class Local(Plugin):
     PLUGIN_ALIASES = ("filesystem", "fs")
     MULTI_INSTANCE = True
     SUPPORTED_CMDLETS = frozenset({"add-file", "search-file"})
+    QUERY_ARG_CHOICES = {
+        "instance": (),
+        "all": ("true", "false"),
+    }
+    INLINE_QUERY_FIELD_CHOICES = QUERY_ARG_CHOICES
 
     @property
     def label(self) -> str:
@@ -201,6 +207,50 @@ class Local(Plugin):
     def validate(self) -> bool:
         return True
 
+    def extract_query_arguments(self, query: str) -> Tuple[str, Dict[str, Any]]:
+        cleaned = str(query or "").strip()
+        if not cleaned or cleaned == "*":
+            return cleaned, {}
+        parsed: Dict[str, Any] = {}
+        free: List[str] = []
+        for segment in cleaned.replace(";", ",").split(","):
+            part = segment.strip()
+            if not part:
+                continue
+            sep = part.find(":")
+            if sep <= 0:
+                free.append(part)
+                continue
+            key = part[:sep].strip().lower()
+            value = part[sep + 1:].strip().strip('"').strip("'")
+            if key in self.QUERY_ARG_CHOICES and value:
+                parsed[key] = value
+            else:
+                free.append(part)
+        return " ".join(free).strip() or "*", parsed
+
+    @staticmethod
+    def _iter_files(root: Path) -> Iterator[os.DirEntry]:
+        stack = [str(root)]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                                continue
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
+                        except OSError:
+                            continue
+                        if is_sidecar_filename(entry.name):
+                            continue
+                        yield entry
+            except OSError:
+                continue
+
     @staticmethod
     def _infer_media_kind(ext: str) -> str:
         e = str(ext or "").strip().lower().lstrip(".")
@@ -253,20 +303,16 @@ class Local(Plugin):
                 continue
 
             try:
-                for entry in root.rglob("*"):
+                for entry in self._iter_files(root):
                     if len(results) >= max_results:
                         break
-                    if not entry.is_file():
-                        continue
-                    if is_sidecar_filename(entry.name):
-                        continue
 
                     file_name = entry.name
-                    file_stem = entry.stem
+                    file_stem = Path(file_name).stem
+                    parent = Path(entry.path).parent
 
-                    tag_path = entry.parent / (file_name + ".tag")
-                    meta_path = entry.parent / (file_name + ".metadata")
-
+                    tag_path = parent / (file_name + ".tag")
+                    meta_path = parent / (file_name + ".metadata")
                     has_tag = tag_path.is_file()
                     has_meta = meta_path.is_file()
                     if not show_all and not has_meta and not has_tag:
@@ -291,7 +337,9 @@ class Local(Plugin):
 
                     if not match_all and query_tokens:
                         url_text = " ".join(urls) if urls else ""
-                        search_text = " ".join([file_name.lower(), file_stem.lower().replace("_", " "), *tags, url_text])
+                        search_text = " ".join(
+                            [file_name.lower(), file_stem.lower().replace("_", " "), *tags, url_text]
+                        )
                         if hash_value:
                             search_text += " " + hash_value.lower()
                         if not all(token in search_text for token in query_tokens):
@@ -302,7 +350,7 @@ class Local(Plugin):
                     except Exception:
                         size_bytes = None
 
-                    ext = entry.suffix.lstrip(".")
+                    ext = Path(file_name).suffix.lstrip(".")
                     media_kind = self._infer_media_kind(ext)
                     display_title = file_stem.replace("_", " ").strip() or file_stem
                     for tag in tags:
@@ -321,7 +369,7 @@ class Local(Plugin):
                     tag_text = ", ".join(tags[:8]) if tags else ""
 
                     metadata: Dict[str, Any] = {
-                        "store": store_label,
+                        "store": "local",
                         "ext": ext,
                         "size": size_bytes,
                     }
@@ -335,16 +383,16 @@ class Local(Plugin):
                     sr = SearchResult(
                         table="local",
                         title=display_title,
-                        path=str(entry),
-                        detail=store_label,
-                        annotations=[store_label],
+                        path=entry.path,
+                        detail=inst_label or "local",
+                        annotations=[inst_label or "local"],
                         media_kind=media_kind,
                         size_bytes=size_bytes,
                         tag=set(tags),
                         columns=[
                             ("Title", display_title),
                             ("Tag", tag_text),
-                            ("Instance", store_label),
+                            ("Instance", inst_label or "default"),
                             ("Plugin", self.name),
                             ("Size", _format_size_safe(size_bytes)),
                             ("Ext", ext),
@@ -353,6 +401,9 @@ class Local(Plugin):
                     )
                     sr.ext = ext
                     sr.size = size_bytes
+                    sr.store = "local"
+                    if inst_label:
+                        sr.instance = inst_label
                     if hash_value:
                         sr.hash = hash_value
                     results.append(sr)
