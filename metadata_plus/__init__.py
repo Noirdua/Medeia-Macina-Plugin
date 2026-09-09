@@ -324,7 +324,7 @@ class OpenLibraryMetadataPlugin(MetadataPlugin):
 
             from API.HTTP import HTTPClient
 
-            with HTTPClient(timeout=8.0) as client:
+            with HTTPClient(timeout=8.0, retries=1) as client:
                 resp = client.get(
                     "https://openlibrary.org/search.json",
                     params={
