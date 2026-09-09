@@ -168,8 +168,38 @@ class NyaaScraper(Scraper):
 
 
 class X1337Scraper(Scraper):
+    MIRRORS = (
+        "https://1337x.to",
+        "https://www.1337x.to",
+        "https://1337x.st",
+        "https://x1337x.ws",
+    )
+
     def __init__(self) -> None:
-        super().__init__("1337x.to", "https://1337x.to")
+        super().__init__("1337x.to", self.MIRRORS[0])
+
+    def _get_page(self, page: int) -> List[TorrentInfo]:
+        last_exc: Optional[Exception] = None
+        for base in self.MIRRORS:
+            self.base = base
+            try:
+                url, payload = self._request_data(page)
+                resp = get_requests_session().get(
+                    url,
+                    params=payload or None,
+                    headers=self.headers,
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                parsed = self._parse_search(resp)
+                if parsed:
+                    return parsed
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            debug(f"[{self.name}] request failed: {last_exc}")
+        return []
 
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
         params = self.params or SearchParams(name="")
@@ -243,10 +273,43 @@ class YTSScraper(Scraper):
             "udp://tracker.leechers-paradise.org:6969",
         ]
     )
+    API_BASES = (
+        "https://yts.mx/api/v2",
+        "https://yts.lt/api/v2",
+        "https://yts.ag/api/v2",
+    )
 
     def __init__(self) -> None:
-        super().__init__("yts.mx", "https://yts.mx/api/v2")
+        super().__init__("yts.mx", self.API_BASES[0])
         self.headers = {}
+
+    def _get_page(self, page: int) -> List[TorrentInfo]:
+        params = self.params or SearchParams(name="")
+        payload = {
+            "limit": 50,
+            "page": page,
+            "query_term": params.name,
+            "sort_by": "seeds",
+            "order_by": "desc" if not params.order_ascending else "asc",
+        }
+        last_exc: Optional[Exception] = None
+        for base in self.API_BASES:
+            try:
+                resp = get_requests_session().get(
+                    f"{base}/list_movies.json",
+                    params=payload,
+                    headers=self.headers,
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                self.base = base
+                return self._parse_search(resp)
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            debug(f"[{self.name}] request failed: {last_exc}")
+        return []
 
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
         params = self.params or SearchParams(name="")
@@ -363,9 +426,9 @@ class Torrent(Plugin):
     PLUGIN_NAME = "torrent"
     PLUGIN_VERSION = "1.0.0"
     PLUGIN_AUTHOR = "Medeia"
-    PLUGIN_DESCRIPTION = "Torrent site search (Nyaa, 1337x, YTS)."
+    PLUGIN_DESCRIPTION = "Torrent site search (The Pirate Bay, YTS, Nyaa, 1337x)."
     TABLE_AUTO_STAGES = {"torrent": ["download-file"]}
-    SUPPORTED_CMDLETS = frozenset({"search-file"})
+    SUPPORTED_CMDLETS = frozenset({"search-file", "download-file"})
 
     @property
     def preserve_order(self) -> bool:
