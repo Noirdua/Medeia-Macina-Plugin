@@ -31,38 +31,9 @@ CMDLET = Cmdlet(
 
 
 def _job_ids(result: Any, args: Sequence[str]) -> List[str]:
-    ids: List[str] = []
-    tokens = [str(t or "").strip() for t in (args or [])]
-    for idx, tok in enumerate(tokens):
-        if tok.lower() in {"-id", "--id"} and idx + 1 < len(tokens):
-            ids.append(tokens[idx + 1])
-        elif tok.lower().startswith("-id="):
-            ids.append(tok.split("=", 1)[1].strip())
-    items = result if isinstance(result, list) else ([result] if result is not None else [])
-    for item in items:
-        if item is None:
-            continue
-        if isinstance(item, dict):
-            for key in ("id", "job_id"):
-                val = str(item.get(key) or "").strip()
-                if val:
-                    ids.append(val)
-            extra = item.get("extra")
-            if isinstance(extra, dict):
-                val = str(extra.get("id") or extra.get("job_id") or "").strip()
-                if val:
-                    ids.append(val)
-            continue
-        val = str(getattr(item, "id", "") or "").strip()
-        if val:
-            ids.append(val)
-    seen: set[str] = set()
-    out: List[str] = []
-    for job_id in ids:
-        if job_id and job_id not in seen:
-            seen.add(job_id)
-            out.append(job_id)
-    return out
+    from SYS.plugin_jobs import extract_job_ids
+
+    return extract_job_ids(result, list(args or []))
 
 
 def _publish_jobs() -> int:
