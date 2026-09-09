@@ -10,7 +10,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, List, Optional, TypeVar
+from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, List, Optional, Tuple, TypeVar
 
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import log, debug, debug_panel, status_panel
@@ -289,6 +289,65 @@ def _suppress_aioslsk_noise() -> Any:
         except Exception:
             pass
         sys.stdout, sys.stderr = old_out, old_err
+
+
+def _humanize_soulseek_field(text: str) -> str:
+    cleaned = str(text or "").replace("_", " ").strip()
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _split_disc_track(token: str) -> Tuple[str, str]:
+    digits = str(token or "").strip()
+    if not re.fullmatch(r"\d{1,3}", digits):
+        return "", ""
+    if len(digits) == 3:
+        return digits[0], digits[1:]
+    if len(digits) == 1:
+        return "", digits.zfill(2)
+    return "", digits
+
+
+def _parse_soulseek_basename(base_name: str) -> Dict[str, str]:
+    raw = str(base_name or "").strip()
+    empty = {"disc": "", "track": "", "artist": "", "title": _humanize_soulseek_field(raw)}
+    if not raw:
+        return empty
+
+    spaced = re.match(r"^(\d{1,3})\s*[\.\-]\s+(.+)$", raw)
+    if spaced:
+        disc, track = _split_disc_track(spaced.group(1))
+        rest = spaced.group(2).strip()
+        artist = ""
+        title = rest
+        if " - " in rest:
+            artist, title = rest.split(" - ", 1)
+        return {
+            "disc": disc,
+            "track": track,
+            "artist": _humanize_soulseek_field(artist),
+            "title": _humanize_soulseek_field(title) or empty["title"],
+        }
+
+    parts = [part.strip() for part in raw.split("-") if part.strip()]
+    if parts and re.fullmatch(r"\d{1,3}", parts[0]):
+        disc, track = _split_disc_track(parts[0])
+        rest = parts[1:]
+        artist = ""
+        if len(rest) >= 2:
+            artist = rest[0]
+            title = " ".join(rest[1:])
+        elif rest:
+            title = rest[0]
+        else:
+            title = raw
+        return {
+            "disc": disc,
+            "track": track,
+            "artist": _humanize_soulseek_field(artist),
+            "title": _humanize_soulseek_field(title) or empty["title"],
+        }
+
+    return empty
 
 
 class Soulseek(Plugin):
@@ -660,18 +719,13 @@ class Soulseek(Plugin):
                     ".",
                     1
                 )[0] if "." in display_name else display_name
-                track_num = ""
-                title = base_name
-                filename_artist = ""
-
-                match = re.match(r"^(\d{1,3})\s*[\.\-]?\s+(.+)$", base_name)
-                if match:
-                    track_num = match.group(1)
-                    rest = match.group(2)
-                    if " - " in rest:
-                        filename_artist, title = rest.split(" - ", 1)
-                    else:
-                        title = rest
+                parsed_name = _parse_soulseek_basename(base_name)
+                track_num = parsed_name["track"]
+                disc_num = parsed_name["disc"]
+                title = parsed_name["title"] or base_name
+                filename_artist = parsed_name["artist"]
+                artist = _humanize_soulseek_field(artist)
+                album = _humanize_soulseek_field(album)
 
                 if filename_artist:
                     artist = filename_artist
@@ -683,6 +737,7 @@ class Soulseek(Plugin):
                         "album": album,
                         "title": title,
                         "track_num": track_num,
+                        "disc": disc_num,
                         "ext": ext,
                     }
                 )
@@ -715,9 +770,12 @@ class Soulseek(Plugin):
                 album_display = item["album"] if item["album"] else "(no album)"
                 size_mb = int(item["size"] / 1024 / 1024)
 
+                track_display = item["track_num"] or "?"
+                if str(item.get("disc") or "").strip() and item["track_num"]:
+                    track_display = f"{item['disc']}.{item['track_num']}"
                 columns = [
                     ("Track",
-                     item["track_num"] or "?"),
+                     track_display),
                     ("Title",
                      item["title"][:40]),
                     ("Artist",
@@ -733,6 +791,8 @@ class Soulseek(Plugin):
                     tags.add(f"artist:{item['artist'].strip()}")
                 if str(item["album"] or "").strip():
                     tags.add(f"album:{item['album'].strip()}")
+                if str(item.get("disc") or "").strip():
+                    tags.add(f"disc:{str(item['disc']).strip()}")
                 if str(item["track_num"] or "").strip():
                     tags.add(f"track:{item['track_num'].strip()}")
                 if str(item["title"] or "").strip():
