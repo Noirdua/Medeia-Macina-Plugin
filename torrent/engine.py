@@ -196,6 +196,11 @@ class TorrentEngine:
                         "save_path": str(job.save_path),
                         "paused": job.paused,
                         "status": job.status,
+                        "progress": job.progress,
+                        "total_wanted": job.total_wanted,
+                        "seeds": job.seeds,
+                        "leechers": job.leechers,
+                        "peers": job.peers,
                     }
                 )
         try:
@@ -236,6 +241,8 @@ class TorrentEngine:
         return lt.add_magnet_uri(ses, magnet, {"save_path": str(save_dir)})
 
     def _restore(self) -> None:
+        if self._jobs:
+            return
         path = self._state_file()
         if not path.is_file():
             return
@@ -255,18 +262,24 @@ class TorrentEngine:
             save_path = Path(str(row.get("save_path") or ""))
             if not job_id or not magnet:
                 continue
+            handle = None
             try:
                 handle = self._add_handle(magnet, save_path, self._resume_file(job_id))
             except Exception:
-                continue
+                handle = None
             job = TorrentJob(
                 job_id=job_id,
                 title=title,
                 magnet=magnet,
-                save_path=save_path if save_path.as_posix() else self._incomplete / sanitize_filename(title),
+                save_path=save_path if str(save_path) else self._incomplete / sanitize_filename(title),
                 handle=handle,
                 paused=bool(row.get("paused")),
                 status=str(row.get("status") or "queued"),
+                progress=float(row.get("progress") or 0),
+                total_wanted=int(row.get("total_wanted") or 0),
+                seeds=int(row.get("seeds") or 0),
+                leechers=int(row.get("leechers") or 0),
+                peers=int(row.get("peers") or 0),
             )
             if job.paused:
                 try:
@@ -459,6 +472,15 @@ class TorrentEngine:
                     self._write_resume(job)
                 self._persist()
 
+    def ensure(self) -> None:
+        try:
+            self._session()
+        except Exception:
+            try:
+                self._restore()
+            except Exception:
+                pass
+
 
 _ENGINE: Optional[TorrentEngine] = None
 
@@ -467,4 +489,5 @@ def get_engine() -> TorrentEngine:
     global _ENGINE
     if _ENGINE is None:
         _ENGINE = TorrentEngine()
+    _ENGINE.ensure()
     return _ENGINE

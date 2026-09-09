@@ -42,6 +42,12 @@ def _publish_jobs() -> int:
     from SYS import pipeline as ctx
     from SYS.result_publication import publish_result_table
 
+    try:
+        from plugins.torrent.engine import get_engine
+
+        get_engine()
+    except Exception:
+        pass
     rows = plugin_jobs.list_jobs("torrent")
     table = Table("Torrent downloads")
     table.set_table("torrent.jobs")
