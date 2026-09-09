@@ -304,6 +304,14 @@ class Local(Plugin):
 
                     ext = entry.suffix.lstrip(".")
                     media_kind = self._infer_media_kind(ext)
+                    display_title = file_stem.replace("_", " ").strip() or file_stem
+                    for tag in tags:
+                        text = str(tag or "").strip()
+                        if text.lower().startswith("title:"):
+                            titled = text.split(":", 1)[1].strip()
+                            if titled:
+                                display_title = titled
+                                break
 
                     inst_label = str(inst_name or "").strip()
                     if inst_label.lower() == "default":
@@ -326,7 +334,7 @@ class Local(Plugin):
 
                     sr = SearchResult(
                         table="local",
-                        title=file_name,
+                        title=display_title,
                         path=str(entry),
                         detail=store_label,
                         annotations=[store_label],
@@ -334,7 +342,7 @@ class Local(Plugin):
                         size_bytes=size_bytes,
                         tag=set(tags),
                         columns=[
-                            ("Title", file_name),
+                            ("Title", display_title),
                             ("Tag", tag_text),
                             ("Instance", store_label),
                             ("Plugin", self.name),
