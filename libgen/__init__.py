@@ -1113,7 +1113,6 @@ class Libgen(Plugin):
                 except Exception as e:
                     debug(f"[libgen] Post-download enrichment failed: {e}")
 
-                debug(f"[libgen] Returning downloaded path: {final_path}")
                 return Path(final_path)
             
             _libgen_panel("libgen download", [("ok", ok), ("path", final_path)])
