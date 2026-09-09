@@ -339,7 +339,6 @@ class OpenLibraryMetadataPlugin(MetadataPlugin):
                 resp.raise_for_status()
                 data = resp.json()
         except Exception as exc:
-            log(f"[metadata+] OpenLibrary search failed: {type(exc).__name__}", file=sys.stderr)
             return []
 
         items: List[Dict[str, Any]] = []
@@ -1590,7 +1589,6 @@ def scrape_isbn_metadata(isbn: str) -> List[str]:
             if val:
                 new_tags.append(f"{ns}:{val}")
 
-    debug(f"Found {len(new_tags)} tag(s) from ISBN lookup")
     return new_tags
 
 
@@ -1679,7 +1677,7 @@ def scrape_openlibrary_metadata(olid: str) -> List[str]:
             if isinstance(author_key, str) and author_key.startswith("/"):
                 try:
                     author_url = f"https://openlibrary.org{author_key}.json"
-                    with HTTPClient(timeout=10) as client:
+                    with HTTPClient(timeout=8.0, retries=1) as client:
                         author_resp = client.get(author_url)
                         author_resp.raise_for_status()
                         author_data = json.loads(author_resp.content.decode("utf-8"))
@@ -1748,7 +1746,6 @@ def scrape_openlibrary_metadata(olid: str) -> List[str]:
     if isinstance(ocaid, str) and ocaid.strip():
         new_tags.append(f"internet_archive:{ocaid.strip()}")
 
-    debug(f"Found {len(new_tags)} tag(s) from OpenLibrary lookup")
     return new_tags
 
 
