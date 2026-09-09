@@ -446,6 +446,39 @@ class Torrent(Plugin):
     SUPPORTED_CMDLETS = frozenset({"search-file", "download-file"})
     prefers_transfer_progress = True
 
+    @classmethod
+    def config_schema(cls) -> List[Dict[str, Any]]:
+        return [
+            {
+                "key": "downloader",
+                "label": "Downloader",
+                "type": "enum",
+                "choices": ["alldebrid", "libtorrent"],
+                "default": "alldebrid",
+                "help": "alldebrid sends magnets to AllDebrid. libtorrent downloads locally.",
+            },
+        ]
+
+    def config_helper_text(self) -> str:
+        return "Choose AllDebrid for debrid unlocks, or libtorrent for a local BitTorrent download."
+
+    def _downloader_mode(self) -> str:
+        root = {}
+        try:
+            root = self.plugin_config_root()
+        except Exception:
+            root = {}
+        if not root and isinstance(self.config, dict):
+            plugin_cfg = self.config.get("plugin")
+            if isinstance(plugin_cfg, dict):
+                entry = plugin_cfg.get("torrent")
+                if isinstance(entry, dict):
+                    root = entry
+        raw = str((root or {}).get("downloader") or "alldebrid").strip().lower()
+        if raw in {"libtorrent", "local", "internal", "bittorrent"}:
+            return "libtorrent"
+        return "alldebrid"
+
     @property
     def preserve_order(self) -> bool:
         return True
@@ -555,6 +588,8 @@ class Torrent(Plugin):
         return f"{text}{sep}{extra}"
 
     def download(self, result: SearchResult, output_dir: Path) -> Optional[Path]:
+        if self._downloader_mode() == "alldebrid":
+            return None
         magnet = self._with_trackers(self._magnet_from_result(result))
         if not magnet:
             return None
