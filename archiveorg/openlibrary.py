@@ -112,13 +112,10 @@ except ImportError:
     AES = None  # type: ignore
     Counter = None  # type: ignore
 
-try:
-    from tqdm import tqdm  # type: ignore
-except ImportError:
-    tqdm = None  # type: ignore
-
-
-def _image_paths_to_pdf_bytes(images: List[str]) -> Optional[bytes]:
+def _image_paths_to_pdf_bytes(
+    images: List[str],
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> Optional[bytes]:
     if not images:
         return None
     try:
@@ -126,21 +123,24 @@ def _image_paths_to_pdf_bytes(images: List[str]) -> Optional[bytes]:
     except Exception:
         return None
 
+    total = max(1, len(images))
     pil_images: List[Any] = []
     try:
-        for p in images:
+        for idx, p in enumerate(images, 1):
             img_path = Path(p)
             if not img_path.is_file():
                 continue
             with Image.open(img_path) as im:  # type: ignore[attr-defined]
-                # Ensure PDF-compatible mode.
-                if im.mode in {"RGBA",
-                               "LA",
-                               "P"}:
+                if im.mode in {"RGBA", "LA", "P"}:
                     im = im.convert("RGB")
                 else:
                     im = im.convert("RGB")
                 pil_images.append(im.copy())
+            if progress_callback is not None:
+                try:
+                    progress_callback(idx, total)
+                except Exception:
+                    pass
     except Exception:
         for im in pil_images:
             try:
@@ -155,6 +155,11 @@ def _image_paths_to_pdf_bytes(images: List[str]) -> Optional[bytes]:
     buf = io.BytesIO()
     first, rest = pil_images[0], pil_images[1:]
     try:
+        if progress_callback is not None:
+            try:
+                progress_callback(total, total)
+            except Exception:
+                pass
         first.save(buf, format="PDF", save_all=True, append_images=rest)
         return buf.getvalue()
     except Exception:
@@ -527,26 +532,20 @@ def _build_pipeline_progress_callback(
             pass
 
         if kind == "step":
-            if text != "download pages":
-                _finish()
+            _ensure_started(total)
             return
 
-        if kind in {"pages", "bytes"}:
+        if kind in {"pages", "bytes", "stitch"}:
+            bar_label = text if kind == "stitch" else transfer_label
             _ensure_started(total)
             try:
                 progress.update_transfer(
-                    label=transfer_label,
+                    label=bar_label,
                     completed=int(completed) if completed is not None else None,
                     total=int(total) if total is not None else None,
                 )
             except Exception:
                 pass
-            if total is not None:
-                try:
-                    if int(completed) >= int(total):
-                        _finish()
-                except Exception:
-                    pass
 
     setattr(_callback, "_finish_transfer", _finish)
     return _callback
@@ -1127,11 +1126,11 @@ class OpenLibraryOps:
         try:
             editions = self._build_borrowable_edition_results(chosen_payload)
         except Exception as exc:
-            print(f"openlibrary selector failed: {exc}\n")
+            log(f"[archive.org] openlibrary selector failed: {exc}", file=sys.stderr)
             return True
 
         if not editions:
-            print("No borrowable OpenLibrary editions were found for that work.\n")
+            log("[archive.org] No borrowable OpenLibrary editions were found for that work.", file=sys.stderr)
             return True
 
         try:
@@ -1690,26 +1689,19 @@ class OpenLibraryOps:
                         pages=pages,
                     )
                 )
-            if progress_callback is not None:
-                done = 0
-                total = len(tasks)
-                for fut in futures.as_completed(tasks):
-                    try:
-                        _ = fut.result()
-                    except Exception:
-                        pass
-                    done += 1
+            done = 0
+            total = len(tasks)
+            for fut in futures.as_completed(tasks):
+                try:
+                    _ = fut.result()
+                except Exception:
+                    pass
+                done += 1
+                if progress_callback is not None:
                     try:
                         progress_callback(done, total)
                     except Exception:
                         pass
-            elif tqdm:
-                for _ in tqdm(futures.as_completed(tasks),
-                              total=len(tasks)):  # type: ignore
-                    pass
-            else:
-                for _ in futures.as_completed(tasks):
-                    pass
 
         return [cls._archive_image_name(pages, i, directory) for i in range(pages)]
 
@@ -2262,20 +2254,26 @@ class OpenLibraryOps:
                         ),
                     )
 
-                    pdf_bytes = _image_paths_to_pdf_bytes(images)
+                    try:
+                        if progress_callback is not None:
+                            progress_callback("step", 0, len(images), "stitch pdf")
+                    except Exception:
+                        pass
+                    pdf_bytes = _image_paths_to_pdf_bytes(
+                        images,
+                        progress_callback=(
+                            (
+                                lambda done, total:
+                                progress_callback("stitch", done, total, "stitch pdf")
+                            ) if progress_callback is not None else None
+                        ),
+                    )
                     if not pdf_bytes:
-                        # Keep images folder for manual conversion.
                         log(
                             "[archive.org] PDF conversion failed; keeping images folder",
                             file=sys.stderr,
                         )
                         return Path(temp_dir)
-
-                    try:
-                        if progress_callback is not None:
-                            progress_callback("step", 0, None, "stitch pdf")
-                    except Exception:
-                        pass
 
                     pdf_path = unique_path(output_dir / f"{title}.pdf")
                     with open(pdf_path, "wb") as f:
