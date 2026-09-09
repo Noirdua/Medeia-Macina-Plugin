@@ -322,22 +322,24 @@ class OpenLibraryMetadataPlugin(MetadataPlugin):
             else:
                 q = query_clean
 
-            resp = get_requests_session().get(
-                "https://openlibrary.org/search.json",
-                params={
-                    "q": q,
-                    "limit": limit,
-                    "fields": (
-                        "title,author_name,publisher,first_publish_year,isbn,key,"
-                        "oclc_numbers,lccn,edition_key,cover_i"
-                    ),
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            from API.HTTP import HTTPClient
+
+            with HTTPClient(timeout=8.0) as client:
+                resp = client.get(
+                    "https://openlibrary.org/search.json",
+                    params={
+                        "q": q,
+                        "limit": limit,
+                        "fields": (
+                            "title,author_name,publisher,first_publish_year,isbn,key,"
+                            "oclc_numbers,lccn,edition_key,cover_i"
+                        ),
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
         except Exception as exc:
-            log(f"OpenLibrary search failed: {exc}", file=sys.stderr)
+            log(f"[metadata+] OpenLibrary search failed: {type(exc).__name__}", file=sys.stderr)
             return []
 
         items: List[Dict[str, Any]] = []
