@@ -5,7 +5,7 @@ PLUGIN_VERSION = "1.0.0"
 PLUGIN_AUTHOR = "Medeia"
 PLUGIN_DESCRIPTION = (
     "Lookup tags from iTunes, MusicBrainz, IMDb, Open Library, "
-    "Google Books, ISBN, yt-dlp, and Tidal."
+    "Google Books, ISBN, and yt-dlp. Tidal is used when that plugin is installed."
 )
 PLUGIN_ALIASES = ("metadata_plus", "metadata_plugin", "metadataplus")
 PLUGIN_REQUIRES = ("musicbrainzngs>=0.7.0", "imdbinfo>=0.1.10", "lxml>=4.9.0")
@@ -21,15 +21,28 @@ import subprocess
 from API.HTTP import HTTPClient
 from API.requests_client import get_requests_session
 from PluginCore.base import Plugin, SearchResult
+
+Tidal = None
+build_track_tags = None
+extract_artists = None
+
+def stringify(value: Any) -> str:
+    return str(value or "").strip()
+
 try:
-    from plugins.tidal import Tidal
-except ImportError:  # pragma: no cover - optional
-    Tidal = None
-from plugins.tidal.api import (
-    build_track_tags,
-    extract_artists,
-    stringify,
-)
+    from plugins.tidal import Tidal as _Tidal
+    from plugins.tidal.api import (
+        build_track_tags as _build_track_tags,
+        extract_artists as _extract_artists,
+        stringify as _stringify,
+    )
+except Exception:
+    pass
+else:
+    Tidal = _Tidal
+    build_track_tags = _build_track_tags
+    extract_artists = _extract_artists
+    stringify = _stringify
 try:  # Optional dependency for IMDb scraping
     from imdbinfo.services import search_title  # type: ignore
 except ImportError:  # pragma: no cover - optional
@@ -1853,8 +1866,9 @@ _METADATA_PLUGINS: Dict[str,
                               "musicbrainz": MusicBrainzMetadataPlugin,
                               "imdb": ImdbMetadataPlugin,
                               "ytdlp": YtdlpMetadataPlugin,
-                              "tidal": TidalMetadataPlugin,
                           }
+if Tidal is not None:
+    _METADATA_PLUGINS["tidal"] = TidalMetadataPlugin
 
 
 def register_metadata_plugin(name: str, plugin_cls: Type[MetadataPlugin]) -> None:
@@ -1933,7 +1947,7 @@ class MetadataPlus(Plugin):
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = (
         "Lookup tags from iTunes, MusicBrainz, IMDb, Open Library, "
-        "Google Books, ISBN, yt-dlp, and Tidal."
+        "Google Books, ISBN, and yt-dlp. Tidal is used when that plugin is installed."
     )
     PLUGIN_ALIASES = ("metadata_plus", "metadata_plugin", "metadataplus")
     PLUGIN_REQUIRES = ("musicbrainzngs>=0.7.0", "imdbinfo>=0.1.10", "lxml>=4.9.0")

@@ -28,11 +28,18 @@ try:
         archive_item_metadata_to_tags,
         fetch_archive_item_metadata,
     )
-except ImportError:
-    from plugins.metadata_plugin import (
-        archive_item_metadata_to_tags,
-        fetch_archive_item_metadata,
-    )
+except Exception:
+    try:
+        from plugins.metadata_plugin import (
+            archive_item_metadata_to_tags,
+            fetch_archive_item_metadata,
+        )
+    except Exception:
+        def archive_item_metadata_to_tags(*_args: Any, **_kwargs: Any) -> List[Any]:
+            return []
+
+        def fetch_archive_item_metadata(*_args: Any, **_kwargs: Any) -> Dict[str, Any]:
+            return {}
 from SYS.utils import unique_path
 
 _DEFAULT_ARCHIVE_SCALE = 4

@@ -392,8 +392,13 @@ def _enrich_book_tags_from_isbn(isbn: str,
     try:
         try:
             from plugins.metadata_plus import get_metadata_plugin
-        except ImportError:
-            from plugins.metadata_plugin import get_metadata_plugin
+        except Exception:
+            try:
+                from plugins.metadata_plugin import get_metadata_plugin
+            except Exception:
+                get_metadata_plugin = None
+        if get_metadata_plugin is None:
+            return [], ""
 
         provider = get_metadata_plugin("isbnsearch",
                                        config or {})
