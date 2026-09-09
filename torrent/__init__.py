@@ -437,6 +437,16 @@ class Torrent(Plugin):
     TABLE_AUTO_STAGES = {"torrent": ["download-file"]}
     SUPPORTED_CMDLETS = frozenset({"search-file", "download-file"})
     prefers_transfer_progress = True
+    ITEM_DETAIL_FIELDS = (
+        ("Status", "status", "Title"),
+        ("Progress", "progress", "Title"),
+        ("Down", "down", "Title"),
+        ("Up", "up", "Title"),
+        ("Seeds", "seeds", "Title"),
+        ("Leechers", "leechers", "Title"),
+        ("Peers", "peers", "Title"),
+        ("Error", "error", "Title"),
+    )
 
     @classmethod
     def config_schema(cls) -> List[Dict[str, Any]]:

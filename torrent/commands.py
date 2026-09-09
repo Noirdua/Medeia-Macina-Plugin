@@ -111,11 +111,14 @@ def _publish_jobs() -> int:
                 ],
             }
         )
+    setattr(table, "_items_added", True)
     publish_result_table(ctx, table, rows, overlay=False)
     display_and_persist_items(
         rows or [{"title": "(none)", "status": "idle"}],
         title="Torrent downloads",
         subject=rows,
+        display_type="custom",
+        table=table,
     )
     return 0
 

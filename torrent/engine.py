@@ -64,7 +64,6 @@ class TorrentJob:
             "seeds": str(self.seeds),
             "leechers": str(self.leechers),
             "size": size,
-            "ext": "torrent",
             "path": str(self.save_path),
             "magnet": self.magnet,
             "error": self.error,
