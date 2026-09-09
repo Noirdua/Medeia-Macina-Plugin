@@ -674,6 +674,12 @@ class Libgen(Plugin):
     PLUGIN_VERSION = "1.0.0"
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = "Library Genesis book search and download."
+    QUERY_ARG_CHOICES = {
+        "title": (),
+        "author": (),
+        "isbn": (),
+    }
+    INLINE_QUERY_FIELD_CHOICES = QUERY_ARG_CHOICES
     SUPPORTED_CMDLETS = frozenset({"download-file", "search-file"})
     TABLE_AUTO_STAGES = {
         "libgen": ["download-file"],
@@ -704,16 +710,32 @@ class Libgen(Plugin):
             from SYS.cli_syntax import get_field, get_free_text, parse_query
 
             parsed = parse_query(query)
-            isbn = get_field(parsed, "isbn")
-            author = get_field(parsed, "author")
-            title = get_field(parsed, "title")
+            isbn = str(filters.get("isbn") or get_field(parsed, "isbn") or "").strip()
+            author = str(filters.get("author") or get_field(parsed, "author") or "").strip()
+            title = str(filters.get("title") or get_field(parsed, "title") or "").strip()
             free_text = get_free_text(parsed)
 
-            search_query = isbn or title or author or free_text or query
+            column = "def"
+            if isbn:
+                search_query = isbn
+                column = "identifier"
+            elif title and author:
+                search_query = f"{title} {author}"
+                column = "def"
+            elif title:
+                search_query = title
+                column = "title"
+            elif author:
+                search_query = author
+                column = "author"
+            else:
+                search_query = free_text or query
+                column = "def"
 
             books = search_libgen(
                 search_query,
                 limit=limit,
+                column=column,
                 log_info=None,
                 log_error=lambda msg: _libgen_panel("libgen", [("error", msg)]),
             )
@@ -1149,6 +1171,7 @@ class LibgenSearch:
         query: str,
         limit: int,
         *,
+        column: str = "def",
         timeout: Any = DEFAULT_TIMEOUT,
     ) -> List[Dict[str,
                    Any]]:
@@ -1159,10 +1182,8 @@ class LibgenSearch:
         url = f"{mirror}/json.php"
         params = {
             "req": query,
-            "res": max(1,
-                       min(100,
-                           int(limit) if limit else 50)),
-            "column": "def",
+            "res": max(1, min(100, int(limit) if limit else 50)),
+            "column": str(column or "def").strip() or "def",
             "phrase": 1,
         }
 
@@ -1190,6 +1211,13 @@ class LibgenSearch:
             extension = item.get("Extension") or item.get("extension"
                                                           ) or item.get("ext") or ""
             md5 = item.get("MD5") or item.get("md5") or ""
+            isbn = (
+                item.get("Identifier")
+                or item.get("identifier")
+                or item.get("isbn")
+                or item.get("ISBN")
+                or ""
+            )
 
             download_link = f"http://library.lol/main/{md5}" if md5 else ""
 
@@ -1205,6 +1233,7 @@ class LibgenSearch:
                     "filesize_str": str(size),
                     "extension": str(extension),
                     "md5": str(md5),
+                    "isbn": str(isbn),
                     "mirror_url": download_link,
                     "cover": "",
                 }
@@ -1220,6 +1249,7 @@ class LibgenSearch:
         query: str,
         limit: int = DEFAULT_LIMIT,
         *,
+        column: str = "def",
         total_timeout: float = DEFAULT_SEARCH_TOTAL_TIMEOUT,
         log_info: LogFn = None,
         log_error: ErrorFn = None,
@@ -1261,8 +1291,13 @@ class LibgenSearch:
                         mirror,
                         query,
                         limit,
+                        column=column,
                         timeout=request_timeout
                     )
+                    if results:
+                        _call(log_info, f"[libgen] Using JSON API: {mirror}")
+                        return results
+                    continue
                 except Exception:
                     results = []
 
@@ -1652,17 +1687,19 @@ def search_libgen(
     query: str,
     limit: int = DEFAULT_LIMIT,
     *,
+    column: str = "def",
     log_info: LogFn = None,
     log_error: ErrorFn = None,
     session: Optional[requests.Session] = None,
 ) -> List[Dict[str,
                Any]]:
-    """Search Libgen using the robust scraper."""
+    """Search Libgen using json.php, with HTML scrape only if the API fails."""
     searcher = LibgenSearch(session=session)
     try:
         results = searcher.search(
             query,
             limit=limit,
+            column=column,
             total_timeout=DEFAULT_SEARCH_TOTAL_TIMEOUT,
             log_info=log_info,
             log_error=log_error,
