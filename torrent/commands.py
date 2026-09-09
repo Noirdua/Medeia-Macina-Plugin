@@ -88,9 +88,31 @@ def _publish_jobs() -> int:
                 ],
             }
         )
+    if not rows:
+        table.add_result(
+            {
+                "title": "(none)",
+                "status": "idle",
+                "progress": "0%",
+                "down": "",
+                "peers": "",
+                "size": "",
+                "columns": [
+                    ("Title", "(none)"),
+                    ("Status", "idle"),
+                    ("Progress", "—"),
+                    ("Down", "—"),
+                    ("Peers", "—"),
+                    ("Size", "—"),
+                ],
+            }
+        )
     publish_result_table(ctx, table, rows, overlay=False)
-    if rows:
-        display_and_persist_items(rows, title="Torrent downloads", subject=rows)
+    display_and_persist_items(
+        rows or [{"title": "(none)", "status": "idle"}],
+        title="Torrent downloads",
+        subject=rows,
+    )
     return 0
 
 
