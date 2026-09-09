@@ -66,13 +66,12 @@ def _job_ids(result: Any, args: Sequence[str]) -> List[str]:
 
 
 def _publish_jobs() -> int:
-    from plugins.torrent.engine import get_engine
+    from SYS import plugin_jobs
     from SYS.result_table import Table
     from SYS import pipeline as ctx
     from SYS.result_publication import publish_result_table
 
-    jobs = get_engine().jobs()
-    rows = [job.snapshot() for job in jobs]
+    rows = plugin_jobs.list_jobs("torrent")
     table = Table("Torrent downloads")
     table.set_table("torrent.jobs")
     for snap in rows:
@@ -98,7 +97,7 @@ def _publish_jobs() -> int:
 def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
     if should_show_help(args):
         return 0
-    from plugins.torrent.engine import get_engine
+    from SYS import plugin_jobs
     from SYS.logger import log
     import sys
 
@@ -106,7 +105,6 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
     pause = "-pause" in tokens or "--pause" in tokens
     resume = "-resume" in tokens or "--resume" in tokens
     remove = "-remove" in tokens or "--remove" in tokens
-    engine = get_engine()
     ids = _job_ids(result, args)
     if pause or resume or remove:
         if not ids:
@@ -115,11 +113,11 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
         ok = True
         for job_id in ids:
             if pause:
-                ok = engine.pause(job_id) and ok
+                ok = plugin_jobs.pause(job_id) and ok
             elif resume:
-                ok = engine.resume(job_id) and ok
+                ok = plugin_jobs.resume(job_id) and ok
             elif remove:
-                ok = engine.remove(job_id) and ok
+                ok = plugin_jobs.cancel(job_id) and ok
         _publish_jobs()
         return 0 if ok else 1
     return _publish_jobs()

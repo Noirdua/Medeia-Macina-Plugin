@@ -153,7 +153,21 @@ class TorrentEngine:
             )
             self._jobs[job_id] = job
             self._order.append(job_id)
-            return job
+        try:
+            from SYS import plugin_jobs
+
+            plugin_jobs.submit(
+                "torrent",
+                title or "torrent",
+                job_id=job.job_id,
+                pause=lambda: self.pause(job.job_id),
+                resume=lambda: self.resume(job.job_id),
+                cancel=lambda: self.remove(job.job_id),
+                snapshot=job.snapshot,
+            )
+        except Exception:
+            pass
+        return job
 
     def jobs(self) -> List[TorrentJob]:
         with self._lock:
