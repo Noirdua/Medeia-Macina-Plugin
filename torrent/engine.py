@@ -127,12 +127,16 @@ class TorrentEngine:
         self._seq = 0
         self._incomplete, self._complete, self._state = default_dirs()
         self._last_resume = 0.0
+        self._auto_resume = False
 
     def set_dirs(self, incomplete: Path, complete: Path) -> None:
         self._incomplete = Path(incomplete)
         self._complete = Path(complete)
         self._incomplete.mkdir(parents=True, exist_ok=True)
         self._complete.mkdir(parents=True, exist_ok=True)
+
+    def set_auto_resume(self, enabled: bool) -> None:
+        self._auto_resume = bool(enabled)
 
     def _session(self) -> Any:
         if self._ses is not None:
@@ -281,11 +285,17 @@ class TorrentEngine:
                 leechers=int(row.get("leechers") or 0),
                 peers=int(row.get("peers") or 0),
             )
-            if job.paused:
+            saved_paused = bool(row.get("paused"))
+            status = str(row.get("status") or "queued")
+            pause_now = saved_paused or (not self._auto_resume and status != "done")
+            if handle is not None and (pause_now or (not self._auto_resume and status == "done")):
                 try:
                     handle.pause()
                 except Exception:
                     pass
+            job.paused = pause_now
+            if pause_now and status != "done":
+                job.status = "paused"
             with self._lock:
                 self._jobs[job_id] = job
                 if job_id not in self._order:
@@ -473,6 +483,17 @@ class TorrentEngine:
                 self._persist()
 
     def ensure(self) -> None:
+        try:
+            from SYS.config import load_config
+            from SYS.utils import coerce_bool
+
+            cfg = load_config()
+            torrent_cfg = ((cfg.get("plugin") or {}).get("torrent") or {})
+            if isinstance(torrent_cfg.get("default"), dict):
+                torrent_cfg = torrent_cfg.get("default") or torrent_cfg
+            self._auto_resume = coerce_bool(torrent_cfg.get("auto_resume"), False)
+        except Exception:
+            pass
         try:
             self._session()
         except Exception:

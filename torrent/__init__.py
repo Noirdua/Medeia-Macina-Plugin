@@ -473,6 +473,13 @@ class Torrent(Plugin):
                 "default": "",
                 "help": "Finished torrents. Empty = plugins/torrent/complete",
             },
+            {
+                "key": "auto_resume",
+                "label": "Resume downloads on startup",
+                "type": "boolean",
+                "default": False,
+                "help": "If off, torrents stay paused after restart until you resume them.",
+            },
         ]
 
     def config_helper_text(self) -> str:
@@ -548,6 +555,12 @@ class Torrent(Plugin):
         incomplete.mkdir(parents=True, exist_ok=True)
         complete.mkdir(parents=True, exist_ok=True)
         return incomplete, complete
+
+    def _auto_resume(self) -> bool:
+        from SYS.utils import coerce_bool
+
+        bag = self._config_bag()
+        return coerce_bool(bag.get("auto_resume") or bag.get("Resume downloads on startup"), False)
 
     @property
     def preserve_order(self) -> bool:
@@ -671,6 +684,7 @@ class Torrent(Plugin):
             incomplete, complete = self._storage_dirs()
             engine = get_engine()
             engine.set_dirs(incomplete, complete)
+            engine.set_auto_resume(self._auto_resume())
             job = engine.add(magnet, incomplete, title)
         except Exception as exc:
             log(f"[torrent] libtorrent unavailable. pip install libtorrent", file=sys.stderr)
