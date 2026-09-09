@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -10,6 +12,7 @@ import requests
 from API.requests_client import get_requests_session
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import debug, log
+from SYS.utils import sanitize_filename, unique_path
 try:  # Preferred HTML parser
     from lxml import html as lxml_html
 except Exception:  # pragma: no cover - optional
@@ -40,6 +43,13 @@ class SearchParams:
 
 
 _MAGNET_RE = re.compile(r"^magnet", re.IGNORECASE)
+_DEFAULT_TRACKERS = (
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+)
 
 
 class Scraper:
@@ -405,7 +415,11 @@ class ApiBayScraper(Scraper):
 
     @staticmethod
     def _build_magnet(info_hash: str, name: str) -> str:
-        return f"magnet:?xt=urn:btih:{info_hash}&dn={requests.utils.quote(name)}"
+        return (
+            f"magnet:?xt=urn:btih:{info_hash}"
+            f"&dn={requests.utils.quote(name)}"
+            f"&tr={'&tr='.join(_DEFAULT_TRACKERS)}"
+        )
 
     @staticmethod
     def _format_size(size_raw: str) -> str:
@@ -426,9 +440,11 @@ class Torrent(Plugin):
     PLUGIN_NAME = "torrent"
     PLUGIN_VERSION = "1.0.0"
     PLUGIN_AUTHOR = "Medeia"
-    PLUGIN_DESCRIPTION = "Torrent site search (The Pirate Bay, YTS, Nyaa, 1337x)."
+    PLUGIN_DESCRIPTION = "Torrent site search and BitTorrent download (The Pirate Bay, YTS, Nyaa, 1337x)."
+    PLUGIN_REQUIRES = ("libtorrent",)
     TABLE_AUTO_STAGES = {"torrent": ["download-file"]}
     SUPPORTED_CMDLETS = frozenset({"search-file", "download-file"})
+    prefers_transfer_progress = True
 
     @property
     def preserve_order(self) -> bool:
@@ -514,3 +530,211 @@ class Torrent(Plugin):
                 )
             )
         return out
+
+    @staticmethod
+    def _magnet_from_result(result: SearchResult) -> str:
+        path = str(getattr(result, "path", "") or "").strip()
+        if path.lower().startswith("magnet:"):
+            return path
+        md = getattr(result, "full_metadata", None) or {}
+        if isinstance(md, dict):
+            magnet = str(md.get("magnet") or "").strip()
+            if magnet.lower().startswith("magnet:"):
+                return magnet
+        return ""
+
+    @staticmethod
+    def _with_trackers(magnet: str) -> str:
+        text = str(magnet or "").strip()
+        if not text.lower().startswith("magnet:"):
+            return text
+        if "&tr=" in text or "?tr=" in text:
+            return text
+        extra = "&".join(f"tr={requests.utils.quote(tr, safe='')}" for tr in _DEFAULT_TRACKERS)
+        sep = "&" if "?" in text else "?"
+        return f"{text}{sep}{extra}"
+
+    def download(self, result: SearchResult, output_dir: Path) -> Optional[Path]:
+        magnet = self._with_trackers(self._magnet_from_result(result))
+        if not magnet:
+            return None
+        title = str(getattr(result, "title", "") or "torrent").strip() or "torrent"
+        try:
+            return _download_with_libtorrent(
+                magnet,
+                Path(output_dir),
+                title=title,
+                progress=(self.config or {}).get("_pipeline_progress") if isinstance(self.config, dict) else None,
+            )
+        except Exception as exc:
+            debug(f"[torrent] libtorrent download failed: {exc}")
+            return None
+
+
+def _download_with_libtorrent(
+    magnet: str,
+    output_dir: Path,
+    *,
+    title: str,
+    progress: Any = None,
+    metadata_timeout: int = 90,
+    stall_timeout: int = 120,
+    overall_timeout: int = 1800,
+) -> Optional[Path]:
+    try:
+        import libtorrent as lt
+    except Exception:
+        return None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_dir = unique_path(output_dir / sanitize_filename(title or "torrent"))
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    ses = lt.session()
+    try:
+        settings = {
+            "listen_interfaces": "0.0.0.0:6881,[::]:6881",
+            "enable_dht": True,
+            "enable_lsd": True,
+            "enable_upnp": True,
+            "enable_natpmp": True,
+            "alert_mask": 0,
+        }
+        apply_settings = getattr(ses, "apply_settings", None)
+        if callable(apply_settings):
+            apply_settings(settings)
+        else:
+            ses.set_settings(settings)
+    except Exception:
+        pass
+    for host, port in (
+        ("router.bittorrent.com", 6881),
+        ("dht.transmissionbt.com", 6881),
+        ("router.utorrent.com", 6881),
+    ):
+        try:
+            ses.add_dht_router(host, port)
+        except Exception:
+            continue
+    try:
+        ses.start_dht()
+    except Exception:
+        pass
+
+    handle = None
+    try:
+        if hasattr(lt, "parse_magnet_uri") and hasattr(ses, "add_torrent"):
+            params = lt.parse_magnet_uri(magnet)
+            params.save_path = str(save_dir)
+            handle = ses.add_torrent(params)
+        else:
+            handle = lt.add_magnet_uri(ses, magnet, {"save_path": str(save_dir)})
+    except Exception as exc:
+        debug(f"[torrent] add magnet failed: {exc}")
+        return None
+
+    def _status():
+        return handle.status()
+
+    def _has_metadata() -> bool:
+        try:
+            if hasattr(handle, "has_metadata"):
+                return bool(handle.has_metadata())
+            return bool(_status().has_metadata)
+        except Exception:
+            return False
+
+    def _is_done() -> bool:
+        try:
+            st = _status()
+            if bool(getattr(st, "is_seeding", False)):
+                return True
+            if float(getattr(st, "progress", 0) or 0) >= 0.999:
+                return True
+            state = getattr(st, "state", None)
+            finished = getattr(lt.torrent_status, "finished", None)
+            seeding = getattr(lt.torrent_status, "seeding", None)
+            return state in {finished, seeding} and state is not None
+        except Exception:
+            return False
+
+    started = time.monotonic()
+    last_progress = 0.0
+    last_change = started
+    got_metadata = False
+    transfer_started = False
+    label = title or "torrent"
+    try:
+        while time.monotonic() - started < overall_timeout:
+            now = time.monotonic()
+            if not got_metadata:
+                if _has_metadata():
+                    got_metadata = True
+                    last_change = now
+                elif now - started > metadata_timeout:
+                    return None
+            elif _is_done():
+                break
+            else:
+                st = _status()
+                pct = float(getattr(st, "progress", 0) or 0)
+                if pct > last_progress + 0.001:
+                    last_progress = pct
+                    last_change = now
+                elif now - last_change > stall_timeout:
+                    return None
+                total = int(getattr(st, "total_wanted", 0) or 0) or None
+                completed = int(round((pct * total))) if total else None
+                if progress is not None:
+                    try:
+                        if not transfer_started and hasattr(progress, "begin_transfer"):
+                            progress.begin_transfer(label=label, total=total)
+                            transfer_started = True
+                        if hasattr(progress, "update_transfer"):
+                            progress.update_transfer(
+                                label=label,
+                                completed=completed,
+                                total=total,
+                            )
+                    except Exception:
+                        pass
+            time.sleep(0.5)
+        else:
+            return None
+
+        files: List[Path] = []
+        try:
+            info = handle.torrent_file() if hasattr(handle, "torrent_file") else handle.get_torrent_info()
+            storage = getattr(info, "files", None)
+            fs = storage() if callable(storage) else info.files()
+            count = fs.num_files() if hasattr(fs, "num_files") else len(fs)
+            for idx in range(int(count)):
+                name = fs.file_path(idx) if hasattr(fs, "file_path") else fs[idx].path
+                candidate = save_dir / str(name)
+                if candidate.is_file():
+                    files.append(candidate)
+        except Exception:
+            files = [p for p in save_dir.rglob("*") if p.is_file()]
+
+        if not files:
+            files = [p for p in save_dir.rglob("*") if p.is_file()]
+        if not files:
+            return None
+        if len(files) == 1:
+            return files[0]
+        return max(files, key=lambda p: p.stat().st_size if p.exists() else 0)
+    finally:
+        if progress is not None and transfer_started and hasattr(progress, "finish_transfer"):
+            try:
+                progress.finish_transfer(label=label)
+            except Exception:
+                pass
+        try:
+            if handle is not None:
+                ses.remove_torrent(handle)
+        except Exception:
+            pass
+        try:
+            ses.pause()
+        except Exception:
+            pass
