@@ -2261,37 +2261,6 @@ class HydrusStoreOperations:
                 )
                 return None
 
-            # Diagnostic: log file type magic bytes to catch download corruption.
-            try:
-                with dest_path.open("rb") as peek:
-                    head = peek.read(16)
-                    head_hex = head.hex() if len(head) >= 4 else (head.hex() if head else "empty")
-                    if head[:3] == b"ID3":
-                        kind = "MP3 (ID3 header)"
-                    elif head[:2] == b"\xff\xfb" or head[:2] == b"\xff\xf3" or head[:2] == b"\xff\xfa":
-                        kind = "MP3 (raw frame)"
-                    elif head[:4] == b"\x00\x00\x00\x1cftyp":
-                        kind = "MP4/M4A"
-                    elif head[:4] == b"RIFF":
-                        kind = "WAV"
-                    elif head[:4] == b"OggS":
-                        kind = "OGG"
-                    elif head[:4] == b"fLaC":
-                        kind = "FLAC"
-                    elif head[:2] == b"\x1f\x8b":
-                        kind = "GZIP"
-                    elif head[:3] == b"PK\x03\x04":
-                        kind = "ZIP"
-                    else:
-                        kind = "unknown"
-                    debug(
-                        f"{self._log_prefix()} downloaded {dest_path.stat().st_size} bytes, "
-                        f"magic={head_hex[:24]} ({kind})"
-                    )
-            except Exception:
-                pass
-
-            # Verify the downloaded bytes match the expected Hydrus hash when possible.
             try:
                 from SYS.utils import sha256_file
 
