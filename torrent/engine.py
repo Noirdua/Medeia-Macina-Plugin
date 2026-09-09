@@ -28,26 +28,49 @@ class TorrentJob:
     download_rate: int = 0
     upload_rate: int = 0
     peers: int = 0
+    seeds: int = 0
+    leechers: int = 0
     total_wanted: int = 0
     error: str = ""
     created_at: float = field(default_factory=time.time)
 
     def snapshot(self) -> Dict[str, Any]:
         pct = max(0.0, min(100.0, float(self.progress) * 100.0))
+        status = "paused" if self.paused and self.status != "done" else self.status
+        progress = f"{pct:.1f}%"
+        down = _fmt_rate(self.download_rate)
+        up = _fmt_rate(self.upload_rate)
+        size = _fmt_size(self.total_wanted)
+        extras = [
+            ("Status", status, "Title"),
+            ("Progress", progress, "Title"),
+            ("Down", down, "Title"),
+            ("Up", up, "Title"),
+            ("Seeds", str(self.seeds), "Title"),
+            ("Leechers", str(self.leechers), "Title"),
+            ("Peers", str(self.peers), "Title"),
+        ]
+        if self.error:
+            extras.append(("Error", self.error, "Title"))
         return {
             "id": self.job_id,
             "title": self.title,
-            "status": "paused" if self.paused and self.status != "done" else self.status,
-            "progress": f"{pct:.1f}%",
-            "down": _fmt_rate(self.download_rate),
-            "up": _fmt_rate(self.upload_rate),
+            "status": status,
+            "progress": progress,
+            "down": down,
+            "up": up,
             "peers": str(self.peers),
-            "size": _fmt_size(self.total_wanted),
+            "seeds": str(self.seeds),
+            "leechers": str(self.leechers),
+            "size": size,
+            "ext": "torrent",
             "path": str(self.save_path),
             "magnet": self.magnet,
             "error": self.error,
             "plugin": "torrent",
+            "instance": "jobs",
             "table": "torrent.jobs",
+            "_detail_extras": extras,
             "_selection_action": [".torrent"],
             "_selection_args": ["-id", self.job_id],
         }
@@ -234,6 +257,15 @@ class TorrentEngine:
                 job.download_rate = int(getattr(st, "download_rate", 0) or 0)
                 job.upload_rate = int(getattr(st, "upload_rate", 0) or 0)
                 job.peers = int(getattr(st, "num_peers", 0) or 0)
+                job.seeds = int(
+                    getattr(st, "num_seeds", 0)
+                    or getattr(st, "num_complete", 0)
+                    or 0
+                )
+                job.leechers = int(
+                    getattr(st, "num_incomplete", 0)
+                    or max(0, job.peers - job.seeds)
+                )
                 job.total_wanted = int(getattr(st, "total_wanted", 0) or 0)
                 if job.paused:
                     job.status = "paused"

@@ -626,9 +626,11 @@ class Torrent(Plugin):
                             ("Title", snap["title"]),
                             ("Status", snap["status"]),
                             ("Progress", snap["progress"]),
-                            ("Down", snap["down"]),
-                            ("Peers", snap["peers"]),
-                            ("Size", snap["size"]),
+                            ("Down", snap.get("down") or ""),
+                            ("Up", snap.get("up") or ""),
+                            ("Seeds", snap.get("seeds") or ""),
+                            ("Leechers", snap.get("leechers") or ""),
+                            ("Size", snap.get("size") or ""),
                         ],
                     }
                 )

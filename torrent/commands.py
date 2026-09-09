@@ -79,12 +79,14 @@ def _publish_jobs() -> int:
             {
                 **snap,
                 "columns": [
-                    ("Title", snap["title"]),
-                    ("Status", snap["status"]),
-                    ("Progress", snap["progress"]),
-                    ("Down", snap["down"]),
-                    ("Peers", snap["peers"]),
-                    ("Size", snap["size"]),
+                    ("Title", snap.get("title") or ""),
+                    ("Status", snap.get("status") or ""),
+                    ("Progress", snap.get("progress") or ""),
+                    ("Down", snap.get("down") or ""),
+                    ("Up", snap.get("up") or ""),
+                    ("Seeds", snap.get("seeds") or ""),
+                    ("Leechers", snap.get("leechers") or ""),
+                    ("Size", snap.get("size") or ""),
                 ],
             }
         )
@@ -102,7 +104,9 @@ def _publish_jobs() -> int:
                     ("Status", "idle"),
                     ("Progress", "—"),
                     ("Down", "—"),
-                    ("Peers", "—"),
+                    ("Up", "—"),
+                    ("Seeds", "—"),
+                    ("Leechers", "—"),
                     ("Size", "—"),
                 ],
             }
