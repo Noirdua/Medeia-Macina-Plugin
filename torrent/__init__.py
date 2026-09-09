@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,8 +87,7 @@ class Scraper:
             )
             resp.raise_for_status()
             return self._parse_search(resp)
-        except Exception as exc:
-            debug(f"[{self.name}] request failed: {exc}")
+        except Exception:
             return []
 
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
@@ -189,7 +189,6 @@ class X1337Scraper(Scraper):
         super().__init__("1337x.to", self.MIRRORS[0])
 
     def _get_page(self, page: int) -> List[TorrentInfo]:
-        last_exc: Optional[Exception] = None
         for base in self.MIRRORS:
             self.base = base
             try:
@@ -204,11 +203,8 @@ class X1337Scraper(Scraper):
                 parsed = self._parse_search(resp)
                 if parsed:
                     return parsed
-            except Exception as exc:
-                last_exc = exc
+            except Exception:
                 continue
-        if last_exc is not None:
-            debug(f"[{self.name}] request failed: {last_exc}")
         return []
 
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
@@ -302,7 +298,6 @@ class YTSScraper(Scraper):
             "sort_by": "seeds",
             "order_by": "desc" if not params.order_ascending else "asc",
         }
-        last_exc: Optional[Exception] = None
         for base in self.API_BASES:
             try:
                 resp = get_requests_session().get(
@@ -314,11 +309,8 @@ class YTSScraper(Scraper):
                 resp.raise_for_status()
                 self.base = base
                 return self._parse_search(resp)
-            except Exception as exc:
-                last_exc = exc
+            except Exception:
                 continue
-        if last_exc is not None:
-            debug(f"[{self.name}] request failed: {last_exc}")
         return []
 
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
@@ -614,7 +606,7 @@ class Torrent(Plugin):
 
             job = get_engine().add(magnet, Path(output_dir), title)
         except Exception as exc:
-            debug(f"[torrent] libtorrent queue failed: {exc}")
+            log(f"[torrent] libtorrent unavailable. pip install libtorrent", file=sys.stderr)
             self._libtorrent_queued = True
             return None
         self._libtorrent_queued = True
