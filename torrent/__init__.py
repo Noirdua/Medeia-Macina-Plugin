@@ -463,19 +463,33 @@ class Torrent(Plugin):
         return "Choose AllDebrid for debrid unlocks, or libtorrent for a local BitTorrent download."
 
     def _downloader_mode(self) -> str:
-        root = {}
+        bags: List[Dict[str, Any]] = []
         try:
             root = self.plugin_config_root()
+            if isinstance(root, dict) and root:
+                bags.append(root)
+                nested = root.get("default")
+                if isinstance(nested, dict):
+                    bags.append(nested)
         except Exception:
-            root = {}
-        if not root and isinstance(self.config, dict):
+            pass
+        if isinstance(self.config, dict):
             plugin_cfg = self.config.get("plugin")
             if isinstance(plugin_cfg, dict):
-                entry = plugin_cfg.get("torrent")
+                entry = plugin_cfg.get("torrent") or plugin_cfg.get("Torrent")
                 if isinstance(entry, dict):
-                    root = entry
-        raw = str((root or {}).get("downloader") or "alldebrid").strip().lower()
-        if raw in {"libtorrent", "local", "internal", "bittorrent"}:
+                    bags.append(entry)
+        raw = ""
+        for bag in bags:
+            for key in ("downloader", "Downloader"):
+                val = str(bag.get(key) or "").strip()
+                if val:
+                    raw = val
+                    break
+            if raw:
+                break
+        mode = raw.lower()
+        if mode in {"libtorrent", "local", "internal", "bittorrent"}:
             return "libtorrent"
         return "alldebrid"
 
@@ -588,22 +602,48 @@ class Torrent(Plugin):
         return f"{text}{sep}{extra}"
 
     def download(self, result: SearchResult, output_dir: Path) -> Optional[Path]:
-        if self._downloader_mode() == "alldebrid":
+        self._libtorrent_queued = False
+        if self._downloader_mode() != "libtorrent":
             return None
         magnet = self._with_trackers(self._magnet_from_result(result))
         if not magnet:
             return None
         title = str(getattr(result, "title", "") or "torrent").strip() or "torrent"
         try:
-            return _download_with_libtorrent(
-                magnet,
-                Path(output_dir),
-                title=title,
-                progress=(self.config or {}).get("_pipeline_progress") if isinstance(self.config, dict) else None,
-            )
+            from plugins.torrent.engine import get_engine
+
+            job = get_engine().add(magnet, Path(output_dir), title)
         except Exception as exc:
-            debug(f"[torrent] libtorrent download failed: {exc}")
+            debug(f"[torrent] libtorrent queue failed: {exc}")
+            self._libtorrent_queued = True
             return None
+        self._libtorrent_queued = True
+        try:
+            from SYS import pipeline as ctx
+            from SYS.result_publication import publish_result_table
+            from SYS.result_table import Table
+
+            table = Table("Torrent downloads")
+            table.set_table("torrent.jobs")
+            for item in get_engine().jobs():
+                snap = item.snapshot()
+                table.add_result(
+                    {
+                        **snap,
+                        "columns": [
+                            ("Title", snap["title"]),
+                            ("Status", snap["status"]),
+                            ("Progress", snap["progress"]),
+                            ("Down", snap["down"]),
+                            ("Peers", snap["peers"]),
+                            ("Size", snap["size"]),
+                        ],
+                    }
+                )
+            publish_result_table(ctx, table, [j.snapshot() for j in get_engine().jobs()], overlay=False)
+        except Exception as exc:
+            debug(f"[torrent] status table failed: {exc}")
+        return None
 
 
 def _download_with_libtorrent(
