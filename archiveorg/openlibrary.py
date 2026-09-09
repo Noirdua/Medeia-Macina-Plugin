@@ -1786,7 +1786,7 @@ class OpenLibraryOps:
             params["title"] = title_text
             params["author"] = author
         elif author and not title_text:
-            params["author"] = author
+            params["q"] = author
             leftover = str(free_text or "").strip()
             if leftover and leftover.lower() != author.lower():
                 params["q"] = leftover
@@ -1950,11 +1950,6 @@ class OpenLibraryOps:
             availability, availability_reason, archive_id, direct_url, preferred_edition_id = ("unknown", "", "", "", "")
             if 0 <= idx < len(availability_rows):
                 availability, availability_reason, archive_id, direct_url, preferred_edition_id = availability_rows[idx]
-
-            # UX requirement: OpenLibrary provider should ONLY show borrowable books.
-            # Ignore printdisabled-only and non-borrow items.
-            if availability != "borrow":
-                continue
 
             candidate_edition_ids = _resolve_candidate_edition_ids(doc)
             if preferred_edition_id and preferred_edition_id not in candidate_edition_ids:
