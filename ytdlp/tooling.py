@@ -981,7 +981,7 @@ class YtDlpDefaults:
     """
 
     format: str = "best"
-    video_format: str = "bestvideo+bestaudio/best"
+    video_format: str = "b/bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b"
     # Prefer pure audio, then fall back to best overall (some clients omit audio-only).
     audio_format: str = "bestaudio/best"
     format_sort: Optional[List[str]] = None
@@ -1441,8 +1441,7 @@ class YtDlpTool:
             if not isinstance(youtube_args, dict):
                 youtube_args = {}
             if not youtube_args.get("player_client"):
-                # android/ios expose stable audio formats; web is last resort.
-                youtube_args["player_client"] = ["android", "ios", "web"]
+                youtube_args["player_client"] = ["web", "ios", "android"]
             extractor_args["youtube"] = youtube_args
             base_options["extractor_args"] = extractor_args
 
@@ -2500,46 +2499,51 @@ def _with_youtube_player_clients(options: Dict[str, Any], clients: Sequence[str]
 def _youtube_retry_option_sets(base_options: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
     """Ordered fallback configs when YouTube returns sign-in / unavailable / 403.
 
-    Only two retries beyond the primary attempt — keeps the download fast:
-    1) browser cookies if available, android/ios clients
-    2) cookies.txt from plugins/ytdlp/ if present, android/ios clients
+    Two retries beyond the primary attempt:
+    1) web/ios clients with the original format
+    2) web/ios clients with a muxed/avc1-safe format selector
     """
     _ = mode
     variants: List[Dict[str, Any]] = []
+    robust_fmt = "b/bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/bestaudio/best"
 
-    def _add(opts: Dict[str, Any]) -> None:
-        key = (
+    def _client_key(opts: Dict[str, Any]) -> tuple[Any, ...]:
+        youtube_args = ((opts.get("extractor_args") or {}).get("youtube") or {})
+        clients = youtube_args.get("player_client") or []
+        return (
             str(opts.get("format")),
             str(opts.get("cookiefile")),
             str(opts.get("cookiesfrombrowser")),
+            tuple(str(c) for c in clients),
         )
-        if any(
-            (
-                str(e.get("format")),
-                str(e.get("cookiefile")),
-                str(e.get("cookiesfrombrowser")),
-            )
-            == key
-            for e in variants
-        ):
+
+    def _add(opts: Dict[str, Any]) -> None:
+        key = _client_key(opts)
+        if any(_client_key(e) == key for e in variants):
             return
         variants.append(opts)
 
-    # 1) Cookiefile from plugins/ytdlp/ — explicit Netscape export.
     cookiefile = base_options.get("cookiefile")
     if cookiefile:
         file_opts = dict(base_options)
         file_opts.pop("cookiesfrombrowser", None)
         file_opts["cookiefile"] = cookiefile
-        _add(_with_youtube_player_clients(file_opts, ["android", "ios"]))
+        _add(_with_youtube_player_clients(file_opts, ["web", "ios"]))
+        if str(file_opts.get("format") or "") != robust_fmt:
+            fmt_opts = dict(file_opts)
+            fmt_opts["format"] = robust_fmt
+            _add(_with_youtube_player_clients(fmt_opts, ["web", "ios"]))
+    else:
+        browser_opts = dict(base_options)
+        browser_opts.pop("cookiefile", None)
+        _add_browser_cookies_if_available(browser_opts)
+        _add(_with_youtube_player_clients(browser_opts, ["web", "ios"]))
+        if str(browser_opts.get("format") or "") != robust_fmt:
+            fmt_opts = dict(browser_opts)
+            fmt_opts["format"] = robust_fmt
+            _add(_with_youtube_player_clients(fmt_opts, ["web", "ios"]))
 
-    # 2) Browser cookies (chrome/brave) — most reliable for logged-in users.
-    browser_opts = dict(base_options)
-    browser_opts.pop("cookiefile", None)
-    _add_browser_cookies_if_available(browser_opts)
-    _add(_with_youtube_player_clients(browser_opts, ["android", "ios"]))
-
-    return variants
+    return variants[:2]
 
 
 def _parse_bandcamp_tralbum(html_text: str) -> Optional[Dict[str, Any]]:

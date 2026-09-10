@@ -1235,7 +1235,15 @@ class ytdlp(TablePluginMixin, Plugin):
             ytdl_format = "bestaudio/best"
         if mode == "video" and not ytdl_format:
             configured = (ytdlp_tool.default_format("video") or "").strip()
-            if configured and configured != "bestvideo+bestaudio/best":
+            stale = {
+                "",
+                "bestvideo+bestaudio/best",
+                "bestvideo+bestaudio",
+                "best",
+            }
+            if configured.lower() in stale:
+                ytdl_format = "b/bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b"
+            else:
                 resolved = ytdlp_tool.resolve_height_selector(configured)
                 ytdl_format = resolved or configured
 
