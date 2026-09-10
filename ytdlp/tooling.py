@@ -1428,23 +1428,6 @@ class YtDlpTool:
         if opts.playlist_items:
             base_options["playlist_items"] = opts.playlist_items
 
-        # YouTube often needs alternate player clients when web/cookies flake.
-        try:
-            netloc = urlparse(opts.url).netloc.lower()
-        except Exception:
-            netloc = ""
-        if ("youtube.com" in netloc) or ("youtu.be" in netloc):
-            extractor_args = base_options.get("extractor_args")
-            if not isinstance(extractor_args, dict):
-                extractor_args = {}
-            youtube_args = extractor_args.get("youtube")
-            if not isinstance(youtube_args, dict):
-                youtube_args = {}
-            if not youtube_args.get("player_client"):
-                youtube_args["player_client"] = ["web", "ios", "android"]
-            extractor_args["youtube"] = youtube_args
-            base_options["extractor_args"] = extractor_args
-
         return base_options
 
     def build_yt_dlp_cli_args(
@@ -2496,12 +2479,28 @@ def _with_youtube_player_clients(options: Dict[str, Any], clients: Sequence[str]
     return updated
 
 
+def _without_youtube_player_clients(options: Dict[str, Any]) -> Dict[str, Any]:
+    updated = dict(options)
+    extractor_args = dict(updated.get("extractor_args") or {})
+    youtube_args = dict(extractor_args.get("youtube") or {})
+    youtube_args.pop("player_client", None)
+    if youtube_args:
+        extractor_args["youtube"] = youtube_args
+    else:
+        extractor_args.pop("youtube", None)
+    if extractor_args:
+        updated["extractor_args"] = extractor_args
+    else:
+        updated.pop("extractor_args", None)
+    return updated
+
+
 def _youtube_retry_option_sets(base_options: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
     """Ordered fallback configs when YouTube returns sign-in / unavailable / 403.
 
     Two retries beyond the primary attempt:
-    1) web/ios clients with the original format
-    2) web/ios clients with a muxed/avc1-safe format selector
+    1) yt-dlp default player clients (visionos/tv_embedded), original format
+    2) same clients with a muxed/avc1-safe format selector
     """
     _ = mode
     variants: List[Dict[str, Any]] = []
@@ -2523,25 +2522,17 @@ def _youtube_retry_option_sets(base_options: Dict[str, Any], *, mode: str) -> Li
             return
         variants.append(opts)
 
-    cookiefile = base_options.get("cookiefile")
-    if cookiefile:
-        file_opts = dict(base_options)
-        file_opts.pop("cookiesfrombrowser", None)
-        file_opts["cookiefile"] = cookiefile
-        _add(_with_youtube_player_clients(file_opts, ["web", "ios"]))
-        if str(file_opts.get("format") or "") != robust_fmt:
-            fmt_opts = dict(file_opts)
-            fmt_opts["format"] = robust_fmt
-            _add(_with_youtube_player_clients(fmt_opts, ["web", "ios"]))
-    else:
-        browser_opts = dict(base_options)
-        browser_opts.pop("cookiefile", None)
+    default_opts = _without_youtube_player_clients(dict(base_options))
+    _add(default_opts)
+    if str(default_opts.get("format") or "") != robust_fmt:
+        fmt_opts = dict(default_opts)
+        fmt_opts["format"] = robust_fmt
+        _add(fmt_opts)
+
+    if not default_opts.get("cookiefile"):
+        browser_opts = dict(default_opts)
         _add_browser_cookies_if_available(browser_opts)
-        _add(_with_youtube_player_clients(browser_opts, ["web", "ios"]))
-        if str(browser_opts.get("format") or "") != robust_fmt:
-            fmt_opts = dict(browser_opts)
-            fmt_opts["format"] = robust_fmt
-            _add(_with_youtube_player_clients(fmt_opts, ["web", "ios"]))
+        _add(browser_opts)
 
     return variants[:2]
 
