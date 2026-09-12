@@ -53,6 +53,7 @@ class TorrentJob:
         ]
         if self.error:
             extras.append(("Error", self.error, "Title"))
+        complete = pct >= 99.9 or str(self.status or "").strip().lower() in {"done", "finished", "seeding"}
         return {
             "id": self.job_id,
             "title": self.title,
@@ -71,7 +72,7 @@ class TorrentJob:
             "instance": "jobs",
             "table": "torrent.jobs",
             "_detail_extras": extras,
-            "_selection_action": [".torrent"],
+            "_selection_action": None if complete else [".jobs"],
             "_selection_args": ["-id", self.job_id],
         }
 
@@ -448,22 +449,32 @@ class TorrentEngine:
                     done = int(prog[idx]) if prog is not None and idx < len(prog) else None
                     _add(str(rel), size, done)
             except Exception:
-                rows.clear()
-                seen.clear()
-        if not rows and root.exists():
-            if root.is_file():
-                _add(root.name, int(root.stat().st_size))
-            else:
-                for path in sorted(p for p in root.rglob("*") if p.is_file()):
-                    try:
-                        rel = str(path.relative_to(root))
-                    except Exception:
-                        rel = path.name
-                    try:
-                        size = int(path.stat().st_size)
-                    except Exception:
-                        size = 0
-                    _add(rel, size)
+                pass
+        roots = [root]
+        try:
+            name = Path(job.save_path).name
+            for extra in (self._complete, self._incomplete):
+                candidate = Path(extra) / name
+                if candidate not in roots:
+                    roots.append(candidate)
+        except Exception:
+            pass
+        for disk_root in roots:
+            if not disk_root.exists():
+                continue
+            if disk_root.is_file():
+                _add(disk_root.name, int(disk_root.stat().st_size))
+                continue
+            for path in sorted(p for p in disk_root.rglob("*") if p.is_file()):
+                try:
+                    rel = str(path.relative_to(disk_root))
+                except Exception:
+                    rel = path.name
+                try:
+                    size = int(path.stat().st_size)
+                except Exception:
+                    size = 0
+                _add(rel, size)
         return rows
 
     def pause(self, job_id: str) -> bool:
@@ -473,7 +484,8 @@ class TorrentEngine:
         try:
             job.handle.pause()
             job.paused = True
-            job.status = "paused"
+            if float(job.progress or 0) < 0.999 and str(job.status or "").lower() not in {"done", "finished", "seeding"}:
+                job.status = "paused"
             self._persist()
             return True
         except Exception:
@@ -526,7 +538,8 @@ class TorrentEngine:
                     job.error = str(exc)
                     job.status = "error"
                     continue
-                job.progress = float(getattr(st, "progress", 0) or 0)
+                incoming = float(getattr(st, "progress", 0) or 0)
+                job.progress = max(float(job.progress or 0), incoming)
                 job.download_rate = int(getattr(st, "download_rate", 0) or 0)
                 job.upload_rate = int(getattr(st, "upload_rate", 0) or 0)
                 job.peers = int(getattr(st, "num_peers", 0) or 0)
@@ -539,10 +552,9 @@ class TorrentEngine:
                     getattr(st, "num_incomplete", 0)
                     or max(0, job.peers - job.seeds)
                 )
-                job.total_wanted = int(getattr(st, "total_wanted", 0) or 0)
-                if job.paused:
-                    job.status = "paused"
-                    continue
+                wanted = int(getattr(st, "total_wanted", 0) or 0)
+                if wanted > 0:
+                    job.total_wanted = wanted
                 has_meta = bool(getattr(st, "has_metadata", False))
                 try:
                     if hasattr(handle, "has_metadata"):
@@ -552,8 +564,13 @@ class TorrentEngine:
                 if bool(getattr(st, "is_seeding", False)) or job.progress >= 0.999:
                     job.status = "done"
                     job.progress = 1.0
-                    self._maybe_complete(job)
-                elif not has_meta:
+                    if not job.paused:
+                        self._maybe_complete(job)
+                    continue
+                if job.paused:
+                    job.status = "paused"
+                    continue
+                if not has_meta:
                     job.status = "metadata"
                 else:
                     job.status = "downloading"

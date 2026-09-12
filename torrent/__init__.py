@@ -544,17 +544,17 @@ class Torrent(Plugin):
         if not stage_is_last or len(selected_items or []) != 1:
             return False
         item = selected_items[0]
-        table_kind = self._item_table(item)
         plugin_name = self._item_plugin(item)
-        if plugin_name not in {"", "torrent"} and table_kind not in {"plugin.jobs", "torrent.jobs"}:
+        table_kind = self._item_table(item)
+        if plugin_name not in {"", "torrent"}:
             return False
-        if table_kind and table_kind not in {"plugin.jobs", "torrent.jobs", "torrent"}:
+        if table_kind and table_kind not in {"", "plugin.jobs", "torrent.jobs", "torrent"}:
             return False
         job_id = self._job_id_from_item(item)
         if not job_id:
             return False
         try:
-            from .engine import get_engine
+            from plugins.torrent.engine import get_engine
 
             engine = get_engine()
             job = engine.get(job_id)
@@ -562,9 +562,7 @@ class Torrent(Plugin):
             return False
         if not self._progress_is_complete(item, job):
             return False
-        files = engine.list_files(job_id)
-        if not files:
-            return False
+        files = engine.list_files(job_id) if job is not None else []
         try:
             from SYS.result_table import Table
             from SYS.rich_display import stdout_console
@@ -578,6 +576,19 @@ class Torrent(Plugin):
         except Exception:
             pass
         payloads: List[Dict[str, Any]] = []
+        if not files:
+            files = [
+                {
+                    "title": "(no files found)",
+                    "name": "(no files found)",
+                    "path": str(getattr(job, "save_path", "") or ""),
+                    "size": "",
+                    "progress": "",
+                    "plugin": "torrent",
+                    "table": "torrent.files",
+                    "job_id": job_id,
+                }
+            ]
         for row in files:
             payload = {
                 **row,
