@@ -20,6 +20,7 @@ from PluginCore.base import Plugin, SearchResult, parse_inline_query_arguments
 from PluginCore.inline_utils import resolve_filter
 from SYS.logger import debug, debug_panel
 from SYS.plugin_helpers import TablePluginMixin
+from SYS.utils import sanitize_filename, unique_path
 
 
 class Vimm(TablePluginMixin, Plugin):
@@ -766,7 +767,7 @@ class Vimm(TablePluginMixin, Plugin):
                 else:
                     fname = filename_hint
 
-                out_path = out_dir / str(fname)
+                out_path = unique_path(out_dir / sanitize_filename(fname or filename_hint or "download"))
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_bytes(content)
                 return out_path

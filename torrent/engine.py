@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from SYS.utils import sanitize_filename, unique_path
+from SYS.utils import format_bytes, sanitize_filename, unique_path
 
 
 def _lt():
@@ -41,7 +41,7 @@ class TorrentJob:
         progress = f"{pct:.1f}%"
         down = _fmt_rate(self.download_rate)
         up = _fmt_rate(self.upload_rate)
-        size = _fmt_size(self.total_wanted)
+        size = format_bytes(self.total_wanted)
         extras = [
             ("Status", status, "Title"),
             ("Progress", progress, "Title"),
@@ -86,20 +86,6 @@ def _fmt_rate(bps: int) -> str:
     if n >= 1024:
         return f"{n / 1024:.1f} KB/s"
     return f"{n:.0f} B/s"
-
-
-def _fmt_size(n: int) -> str:
-    try:
-        size = float(n or 0)
-    except Exception:
-        return ""
-    if size >= 1024 ** 3:
-        return f"{size / (1024 ** 3):.2f} GB"
-    if size >= 1024 ** 2:
-        return f"{size / (1024 ** 2):.1f} MB"
-    if size >= 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size:.0f} B"
 
 
 def plugin_root() -> Path:

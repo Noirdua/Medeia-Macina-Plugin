@@ -12,7 +12,7 @@ from urllib.parse import quote, unquote, urlparse
 
 from PluginCore.base import Plugin, SearchResult, parse_inline_query_arguments
 from SYS.metadata import build_sidecar_payloads, is_sidecar_filename, parse_sidecar_text
-from SYS.utils import coerce_bool as _coerce_bool, coerce_int as _coerce_int, format_byte_size, unique_path as _unique_path
+from SYS.utils import coerce_bool as _coerce_bool, coerce_int as _coerce_int, format_byte_size, sanitize_filename, unique_path as _unique_path
 
 
 def _format_timestamp(raw_value: Any) -> str:
@@ -26,15 +26,6 @@ def _format_timestamp(raw_value: Any) -> str:
         except Exception:
             continue
     return text
-
-
-def _safe_filename(name: Any) -> str:
-    raw = str(name or "").strip()
-    if not raw:
-        raw = "download"
-    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_", ".", " "} else "_" for ch in raw)
-    cleaned = cleaned.strip(" ._")
-    return cleaned or "download"
 
 
 class FTP(Plugin):
@@ -459,7 +450,7 @@ class FTP(Plugin):
 
         filename_hint = str(kwargs.get("title") or "").strip()
         parsed_name = posixpath.basename(remote_path.rstrip("/"))
-        filename = _safe_filename(filename_hint or unquote(parsed_name) or "download")
+        filename = sanitize_filename(filename_hint or unquote(parsed_name) or "download")
 
         destination_dir = Path(output_dir)
         destination_dir.mkdir(parents=True, exist_ok=True)

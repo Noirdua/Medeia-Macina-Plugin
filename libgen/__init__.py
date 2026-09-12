@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse, unquote
 
 from PluginCore.base import Plugin, SearchResult
-from SYS.utils import safe_output_dir, sanitize_filename
+from SYS.utils import safe_output_dir, sanitize_filename, unique_path
 from SYS.logger import log, debug, debug_panel
 from SYS.models import ProgressBar
 
@@ -879,14 +879,7 @@ class Libgen(Plugin):
             out_path = output_dir / base_name
             if extension:
                 out_path = out_path.with_suffix(f".{extension}")
-
-            if out_path.exists():
-                stem = out_path.stem
-                suffix = out_path.suffix
-                counter = 1
-                while out_path.exists() and counter < 200:
-                    out_path = out_path.with_name(f"{stem}({counter}){suffix}")
-                    counter += 1
+            out_path = unique_path(out_path)
 
             # Show a progress bar on stderr (safe for pipelines).
             progress_bar = ProgressBar()
@@ -2006,12 +1999,7 @@ def _apply_extension(path: Path, extension: Optional[str]) -> Path:
     if path.suffix.lower() == suffix.lower():
         return path
 
-    candidate = path.with_suffix(suffix)
-    base_stem = path.stem
-    counter = 1
-    while candidate.exists() and counter < 100:
-        candidate = path.with_name(f"{base_stem}({counter}){suffix}")
-        counter += 1
+    candidate = unique_path(path.with_suffix(suffix))
 
     try:
         path.replace(candidate)

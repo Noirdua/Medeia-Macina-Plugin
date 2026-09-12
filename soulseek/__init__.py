@@ -15,6 +15,7 @@ from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, List, Optiona
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import log, debug, debug_panel, status_panel
 from SYS.models import ProgressBar
+from SYS.utils import default_staging_dir, sanitize_filename, unique_path
 
 _SOULSEEK_NOISE_SUBSTRINGS = (
     "unhandled exception on loop",
@@ -882,24 +883,15 @@ async def download_soulseek_file(
         from aioslsk.transfer.state import TransferState
 
         if output_dir is None:
-            import tempfile
-            output_dir = Path(tempfile.gettempdir()) / "Medios" / "Soulseek"
-        
+            output_dir = default_staging_dir() / "soulseek"
+
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        local_filename = filename.replace("\\", "/").split("/")[-1]
-        output_user_dir = output_dir / username
+        local_filename = sanitize_filename(filename.replace("\\", "/").split("/")[-1])
+        output_user_dir = output_dir / sanitize_filename(username, fallback="peer")
         output_user_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_user_dir / local_filename
-
-        if output_path.exists():
-            base = output_path.stem
-            ext = output_path.suffix
-            counter = 1
-            while output_path.exists():
-                output_path = output_user_dir / f"{base}_{counter}{ext}"
-                counter += 1
+        output_path = unique_path(output_user_dir / local_filename)
 
         output_path = output_path.resolve()
 

@@ -887,9 +887,6 @@ class Telegram(Plugin):
                 "title": ""
             } for p in (file_paths or [])]
 
-        def _sanitize_filename(text: str) -> str:
-            return sanitize_filename(text, max_len=120, fallback="file")
-
         # Normalize and validate file paths + titles.
         jobs: list[Dict[str, Any]] = []
         seen_paths: set[str] = set()
@@ -992,9 +989,8 @@ class Telegram(Plugin):
 
                             title_raw = str(job.get("title") or "").strip()
                             fallback = path_obj.stem
-                            base = (
-                                _sanitize_filename(title_raw)
-                                if title_raw else _sanitize_filename(fallback)
+                            base = sanitize_filename(
+                                title_raw or fallback, max_len=120, fallback="file"
                             )
                             ext = path_obj.suffix
                             send_name = f"{base}{ext}" if ext else base

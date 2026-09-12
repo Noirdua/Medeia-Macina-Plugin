@@ -22,7 +22,7 @@ from SYS.logger import debug_panel, log, is_debug_enabled, status_panel
 from SYS.item_accessors import extract_item_tags, get_result_title
 from API.HTTP import HTTPClient
 from SYS.pipeline_progress import PipelineProgress
-from SYS.utils import ensure_directory, sha256_file, unique_path, unique_preserve_order
+from SYS.utils import coerce_bool, ensure_directory, sha256_file, unique_path, unique_preserve_order
 from cmdlet import _shared as sh
 
 Cmdlet = sh.Cmdlet
@@ -341,18 +341,7 @@ def _normalize_quality(value: Any) -> int:
 
 
 def _normalize_bool(value: Any, *, default: bool = False) -> bool:
-    if value is None:
-        return bool(default)
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return bool(default)
-    if text in {"1", "true", "yes", "on", "enable", "enabled"}:
-        return True
-    if text in {"0", "false", "no", "off", "disable", "disabled"}:
-        return False
-    return bool(default)
+    return coerce_bool(value, default)
 
 
 def _url_matches_adblock(url: str) -> bool:

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import quote, unquote, urlparse
 
-from SYS.utils import coerce_bool, coerce_int, unique_path
+from SYS.utils import coerce_bool, coerce_int, sanitize_filename, unique_path
 
 
 def format_epoch(raw_value: Any) -> str:
@@ -18,15 +18,6 @@ def format_epoch(raw_value: Any) -> str:
         return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return str(raw_value or "")
-
-
-def safe_filename(name: Any) -> str:
-    raw = str(name or "").strip()
-    if not raw:
-        raw = "download"
-    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_", ".", " "} else "_" for ch in raw)
-    cleaned = cleaned.strip(" ._")
-    return cleaned or "download"
 
 
 def normalize_remote_path(value: Any, *, default: str) -> str:

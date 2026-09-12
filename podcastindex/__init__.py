@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import sys
-import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import log
-from SYS.utils import format_bytes
+from SYS.utils import format_bytes, sha256_file
 
 
 def _get_podcastindex_credentials(config: Dict[str, Any]) -> Tuple[str, str]:
@@ -84,11 +83,6 @@ class PodcastIndex(Plugin):
         return f"{s:d}s"
 
     @staticmethod
-    def _format_bytes(value: Any) -> str:
-        """Format bytes using centralized utility."""
-        return format_bytes(value)
-
-    @staticmethod
     def _format_date_from_epoch(value: Any) -> str:
         if value is None:
             return ""
@@ -148,14 +142,6 @@ class PodcastIndex(Plugin):
         # Some pipelines may flatten episode fields.
         enc2 = item.get("enclosureUrl") or item.get("url")
         return isinstance(enc2, str) and enc2.strip().startswith("http")
-
-    @staticmethod
-    def _compute_sha256(filepath: Path) -> str:
-        h = hashlib.sha256()
-        with open(filepath, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                h.update(chunk)
-        return h.hexdigest()
 
     def selector(
         self,
@@ -250,7 +236,7 @@ class PodcastIndex(Plugin):
                     ("Title", ep_title),
                     ("Date", published_text),
                     ("Duration", self._format_duration(duration)),
-                    ("Size", self._format_bytes(size_bytes)),
+                    ("Size", format_bytes(size_bytes)),
                     ("Url", audio_url),
                 ],
                 full_metadata={
@@ -348,7 +334,7 @@ class PodcastIndex(Plugin):
 
             sha256 = ""
             try:
-                sha256 = self._compute_sha256(local_path)
+                sha256 = sha256_file(local_path)
             except Exception:
                 sha256 = ""
 

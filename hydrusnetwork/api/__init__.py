@@ -30,6 +30,7 @@ from SYS.utils import (
     decode_cbor,
     jsonify,
     ensure_directory,
+    extract_hydrus_hash_from_url,
     unique_path,
 )
 from API.HTTP import HTTPClient
@@ -1536,10 +1537,6 @@ def hydrus_export(args, _parser) -> int:
 
         return mime_map.get(mime.lower())
 
-    def _extract_hash(file_url: str) -> Optional[str]:
-        match = re.search(r"[?&]hash=([0-9a-fA-F]+)", file_url)
-        return match.group(1) if match else None
-
     # Ensure output and temp directories exist using global helper
     for dir_path in [target_dir, Path(args.tmp_dir) if args.tmp_dir else target_dir]:
         try:
@@ -1572,7 +1569,7 @@ def hydrus_export(args, _parser) -> int:
             except Exception:
                 pass
         resolved_suffix: Optional[str] = None
-        file_hash = getattr(args, "file_hash", None) or _extract_hash(args.file_url)
+        file_hash = getattr(args, "file_hash", None) or extract_hydrus_hash_from_url(args.file_url)
         if hydrus_url and file_hash:
             try:
                 client = HydrusNetwork(

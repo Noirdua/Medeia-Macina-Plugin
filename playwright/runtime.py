@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterator, List, Optional, Union
 
 from SYS.config import get_nested_config_value as _get_nested
 from SYS.logger import debug
+from SYS.utils import coerce_int
 
 try:
     from playwright.sync_api import TimeoutError as _SyncPlaywrightTimeoutError
@@ -171,11 +172,7 @@ class PlaywrightTool:
                 ua = ua_s
 
         def _int(name: str, fallback: int) -> int:
-            raw = _get(name, fallback)
-            try:
-                return int(raw)
-            except Exception:
-                return fallback
+            return coerce_int(_get(name, fallback), fallback)
 
         vw = _int("viewport_width", defaults.viewport_width)
         vh = _int("viewport_height", defaults.viewport_height)

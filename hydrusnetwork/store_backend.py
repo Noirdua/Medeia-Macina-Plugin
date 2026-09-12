@@ -2118,14 +2118,8 @@ class HydrusStoreOperations:
                 )
             base_tmp.mkdir(parents=True, exist_ok=True)
 
-            def _safe_filename(raw: str) -> str:
-                cleaned = re.sub(r"[\\/:*?\"<>|]", "_", str(raw or "")).strip()
-                if not cleaned:
-                    return h
-                cleaned = cleaned.strip(". ") or h
-                return cleaned
+            from SYS.utils import sanitize_filename
 
-            # Prefer ext/title from metadata when available.
             fname = h
             ext_val = ""
             try:
@@ -2133,7 +2127,7 @@ class HydrusStoreOperations:
                 if isinstance(meta, dict):
                     title_val = str(meta.get("title") or "").strip()
                     if title_val:
-                        fname = _safe_filename(title_val)
+                        fname = sanitize_filename(title_val, fallback=h)
                     ext_val = str(meta.get("ext") or "").strip().lstrip(".")
             except Exception:
                 pass

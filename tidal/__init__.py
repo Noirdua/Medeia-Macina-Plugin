@@ -18,6 +18,7 @@ from plugins.tidal.api import (
 )
 from PluginCore.base import Plugin, SearchResult
 from SYS.field_access import get_field
+from SYS.utils import sanitize_filename
 from plugins.tidal.manifest import resolve_tidal_manifest_path
 from SYS import pipeline as pipeline_context
 from SYS.logger import debug, log
@@ -30,7 +31,6 @@ URL_API = (
     "https://katze.qqdl.site",
     "https://hund.qqdl.site",
     "https://tidal.kinoplus.online",
-    "https://tidal-api.binimum.org",
     "https://tidal-api.binimum.org",
 )
 
@@ -394,15 +394,6 @@ class Tidal(Plugin):
             if "video" in inline_args or "playlist" in inline_args:
                 return "track"
         return self._get_view_from_query(query)
-
-    @staticmethod
-    def _safe_filename(value: Any, *, fallback: str = "tidal") -> str:
-        text = str(value or "").strip()
-        if not text:
-            return fallback
-        text = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", text)
-        text = re.sub(r"\s+", " ", text).strip().strip(". ")
-        return text[:120] if text else fallback
 
     @staticmethod
     def _parse_track_id(value: Any) -> Optional[int]:
@@ -1005,7 +996,7 @@ class Tidal(Plugin):
             return None
         # Prefer albumId when available; some payloads carry both id/albumId.
         album_id = self._parse_int(album.get("albumId") or album.get("id"))
-        path = f"tidal://album/{album_id}" if album_id else f"tidal://album/{self._safe_filename(title)}"
+        path = f"tidal://album/{album_id}" if album_id else f"tidal://album/{sanitize_filename(title, max_len=120, fallback='tidal')}"
 
         columns: List[tuple[str, str]] = [("Album", title)]
         if artist_name:
@@ -1399,8 +1390,8 @@ class Tidal(Plugin):
             return None
 
         track_id = self._extract_track_id_from_result(result)
-        title_part = self._safe_filename(getattr(result, "title", None), fallback="tidal")
-        hash_part = self._safe_filename(md.get("manifestHash"), fallback="")
+        title_part = sanitize_filename(getattr(result, "title", None), max_len=120, fallback="tidal")
+        hash_part = sanitize_filename(md.get("manifestHash"), max_len=120, fallback="")
 
         stem_parts = ["tidal"]
         if track_id:

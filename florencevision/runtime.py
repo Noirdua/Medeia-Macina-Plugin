@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from SYS.config import get_nested_config_value as _get_nested
 from SYS.logger import debug
+from SYS.utils import coerce_bool, coerce_int
 
 
 def _truncate_debug_text(text: str, max_chars: int = 12000) -> str:
@@ -27,26 +28,6 @@ def _debug_repr(value: Any, max_chars: int = 12000) -> str:
         except Exception:
             s = f"<{type(value).__name__}>"
     return _truncate_debug_text(s, max_chars=max_chars)
-
-
-def _as_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    s = str(value).strip().lower()
-    if s in {"1", "true", "yes", "on"}:
-        return True
-    if s in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return default
 
 
 def _clean_tag_value(text: str) -> str:
@@ -323,12 +304,12 @@ class FlorenceVisionTool:
         base = FlorenceVisionDefaults()
 
         defaults = FlorenceVisionDefaults(
-            enabled=_as_bool(plugin_block.get("enabled"), False),
-            strict=_as_bool(plugin_block.get("strict"), False),
+            enabled=coerce_bool(plugin_block.get("enabled"), False),
+            strict=coerce_bool(plugin_block.get("strict"), False),
             model=str(plugin_block.get("model") or base.model),
             device=str(plugin_block.get("device") or base.device),
             dtype=(str(plugin_block.get("dtype")).strip() if plugin_block.get("dtype") else None),
-            max_tags=_as_int(plugin_block.get("max_tags"), base.max_tags),
+            max_tags=coerce_int(plugin_block.get("max_tags"), base.max_tags),
             namespace=str(plugin_block.get("namespace") or base.namespace),
             task=str(plugin_block.get("task") or base.task),
         )

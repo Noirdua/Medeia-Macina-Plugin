@@ -1036,10 +1036,6 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                     "table": None,
                 }
 
-            def _format_bytes(n: Any) -> str:
-                """Format bytes using centralized utility."""
-                return format_bytes(n)
-
             if formats is None:
                 return {
                     "success": False,
@@ -1128,7 +1124,7 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                         resolution = ""
 
                 ext = str(fmt.get("ext") or "").strip()
-                size = _format_bytes(fmt.get("filesize") or fmt.get("filesize_approx"))
+                size = format_bytes(fmt.get("filesize") or fmt.get("filesize_approx"))
 
                 selection_fn = plugin_attr("ytdlp", "get_selection_format_id")
                 selection_id = (

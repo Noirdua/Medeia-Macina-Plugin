@@ -28,7 +28,7 @@ from ._helpers import (
     item_metadata,
     join_remote_path,
     normalize_remote_path,
-    safe_filename,
+    sanitize_filename,
     unique_path,
 )
 from ._listing import (
@@ -499,7 +499,7 @@ class SCP(Plugin):
 
         filename_hint = str(kwargs.get("title") or "").strip()
         parsed_name = posixpath.basename(remote_path.rstrip("/"))
-        filename = safe_filename(filename_hint or unquote(parsed_name) or "download")
+        filename = sanitize_filename(filename_hint or unquote(parsed_name) or "download")
 
         destination_dir = Path(output_dir)
         destination_dir.mkdir(parents=True, exist_ok=True)

@@ -13,24 +13,7 @@ from SYS.metadata import (
     read_tags_from_file,
     write_merged_sidecar,
 )
-from SYS.utils import coerce_bool
-from SYS.utils import sanitize_filename, sha256_file, unique_path
-
-
-def _format_size_safe(size_bytes: Any) -> str:
-    if size_bytes is None:
-        return ""
-    try:
-        size = int(size_bytes)
-    except (TypeError, ValueError):
-        return str(size_bytes or "")
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-    if size < 1024 * 1024 * 1024:
-        return f"{size / (1024 * 1024):.1f} MB"
-    return f"{size / (1024 * 1024 * 1024):.2f} GB"
+from SYS.utils import coerce_bool, format_bytes, sanitize_filename, sha256_file, unique_path
 
 
 def _copy_sidecars(source_path: Path, target_path: Path) -> None:
@@ -394,7 +377,7 @@ class Local(Plugin):
                             ("Tag", tag_text),
                             ("Instance", inst_label or "default"),
                             ("Plugin", self.name),
-                            ("Size", _format_size_safe(size_bytes)),
+                            ("Size", format_bytes(size_bytes)),
                             ("Ext", ext),
                         ],
                         full_metadata=metadata,

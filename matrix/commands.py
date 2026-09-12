@@ -488,11 +488,6 @@ def _extract_sha256_hex(item: Any) -> Optional[str]:
     return get_sha256_hex(item, "hash")
 
 
-def _extract_hash_from_hydrus_file_url(url: str) -> Optional[str]:
-    """Extract hash from Hydrus URL using centralized utility."""
-    return extract_hydrus_hash_from_url(url)
-
-
 def _maybe_download_hydrus_file(item: Any,
                                 config: Dict[str,
                                              Any],
@@ -529,7 +524,7 @@ def _maybe_download_hydrus_file(item: Any,
         url = _extract_url(item)
         file_hash = _extract_sha256_hex(item)
         if url and not file_hash:
-            file_hash = _extract_hash_from_hydrus_file_url(url)
+            file_hash = extract_hydrus_hash_from_url(url)
 
         # If it doesn't look like a Hydrus file, skip.
         if not file_hash:
@@ -541,7 +536,7 @@ def _maybe_download_hydrus_file(item: Any,
             parsed = urlparse(url)
             is_hydrus_url = (parsed.path or "").endswith(
                 "/get_files/file"
-            ) and _extract_hash_from_hydrus_file_url(url) == file_hash
+            ) and extract_hydrus_hash_from_url(url) == file_hash
         hydrus_instances: set[str] = set()
         try:
             store_cfg = (config

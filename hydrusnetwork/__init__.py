@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from PluginCore.base import Plugin, SearchResult
 from plugins.hydrusnetwork.store_backend import HydrusStoreOperations
 from SYS.selection_builder import build_hash_store_selection
+from SYS.utils import format_bytes
 
 
 _SHA256_RE = re.compile(r"\b[a-fA-F0-9]{64}\b")
@@ -965,22 +966,7 @@ class HydrusNetwork(Plugin):
 
     @staticmethod
     def _format_size_column(size_value: Optional[int]) -> str:
-        if size_value is None:
-            return ""
-        try:
-            bytes_value = int(size_value)
-        except Exception:
-            return ""
-        if bytes_value < 0:
-            return ""
-        if bytes_value >= 1024 ** 3:
-            value = bytes_value / float(1024 ** 3)
-            unit = "GB"
-        else:
-            value = bytes_value / float(1024 ** 2)
-            unit = "MB"
-        number = f"{value:.2f}".rstrip("0").rstrip(".")
-        return f"{number} {unit}"
+        return format_bytes(size_value)
 
     def _search_result_from_backend_row(self, store_name: str, row: Any) -> Optional[SearchResult]:
         if not isinstance(row, dict):
