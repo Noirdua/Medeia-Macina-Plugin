@@ -937,6 +937,12 @@ class AllDebrid(TablePluginMixin, Plugin):
                 # If this is an unlocked debrid link (allow_html=True), stream it directly and skip
                 # the generic HTML guard to avoid falling back to the public hoster.
                 if allow_html:
+                    pipe_progress = None
+                    try:
+                        if isinstance(self.config, dict):
+                            pipe_progress = self.config.get("_pipeline_progress")
+                    except Exception:
+                        pipe_progress = None
                     try:
                         from API.HTTP import HTTPClient
 
@@ -950,11 +956,42 @@ class AllDebrid(TablePluginMixin, Plugin):
                         with HTTPClient(timeout=30.0) as client:
                             with client._request_stream("GET", unlocked_url, follow_redirects=True) as resp:
                                 resp.raise_for_status()
-                                with dest.open("wb") as fh:
-                                    for chunk in resp.iter_bytes():
-                                        if not chunk:
-                                            continue
-                                        fh.write(chunk)
+                                total = None
+                                try:
+                                    header_len = resp.headers.get("content-length")
+                                    if header_len and str(header_len).strip().isdigit():
+                                        total = int(str(header_len).strip())
+                                except Exception:
+                                    total = None
+                                label = fname
+                                completed = 0
+                                if pipe_progress is not None:
+                                    try:
+                                        pipe_progress.begin_transfer(label=label, total=total)
+                                    except Exception:
+                                        pass
+                                try:
+                                    with dest.open("wb") as fh:
+                                        for chunk in resp.iter_bytes():
+                                            if not chunk:
+                                                continue
+                                            fh.write(chunk)
+                                            completed += len(chunk)
+                                            if pipe_progress is not None:
+                                                try:
+                                                    pipe_progress.update_transfer(
+                                                        label=label,
+                                                        completed=completed,
+                                                        total=total,
+                                                    )
+                                                except Exception:
+                                                    pass
+                                finally:
+                                    if pipe_progress is not None:
+                                        try:
+                                            pipe_progress.finish_transfer(label=label)
+                                        except Exception:
+                                            pass
                         return dest if dest.exists() else None
                     except Exception:
                         return None
@@ -1938,6 +1975,35 @@ class AllDebrid(TablePluginMixin, Plugin):
             pass
 
         return True
+
+    def expand_selection(
+        self,
+        selected_items: List[Any],
+        *,
+        ctx: Any,
+        stage_is_last: bool = True,
+        table_type: str = "",
+        **_kwargs: Any,
+    ) -> Optional[List[Any]]:
+        _ = ctx
+        if stage_is_last:
+            return None
+
+        normalized_table = str(table_type or "").strip().lower()
+        if normalized_table and normalized_table != "alldebrid":
+            return None
+
+        try:
+            from PluginCore.registry import get_plugin as _get_plugin
+        except Exception:
+            return None
+
+        expanded: List[Any] = []
+        for item in selected_items or []:
+            rows, _reason = expand_folder_item(item, _get_plugin, self.config or {})
+            if rows:
+                expanded.extend(rows)
+        return expanded or None
 
     def show_selection_details(
         self,
