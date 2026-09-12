@@ -488,6 +488,124 @@ class Torrent(Plugin):
             "libtorrent stores incomplete/complete under the plugin folder by default."
         )
 
+    @staticmethod
+    def _job_id_from_item(item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("id") or item.get("job_id") or "").strip()
+        return str(getattr(item, "id", None) or getattr(item, "job_id", None) or "").strip()
+
+    @staticmethod
+    def _item_plugin(item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("plugin") or "").strip().lower()
+        return str(getattr(item, "plugin", "") or "").strip().lower()
+
+    @staticmethod
+    def _item_table(item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("table") or "").strip().lower()
+        return str(getattr(item, "table", "") or "").strip().lower()
+
+    @staticmethod
+    def _progress_is_complete(item: Any, job: Any = None) -> bool:
+        if job is not None:
+            try:
+                if float(getattr(job, "progress", 0) or 0) >= 0.999:
+                    return True
+            except Exception:
+                pass
+            if str(getattr(job, "status", "") or "").strip().lower() in {"done", "finished", "seeding"}:
+                return True
+        raw = ""
+        if isinstance(item, dict):
+            raw = str(item.get("progress") or "")
+            status = str(item.get("status") or "").strip().lower()
+        else:
+            raw = str(getattr(item, "progress", "") or "")
+            status = str(getattr(item, "status", "") or "").strip().lower()
+        if status in {"done", "finished", "seeding"}:
+            return True
+        text = raw.strip().lower().replace(" ", "")
+        if text.endswith("%"):
+            try:
+                return float(text[:-1]) >= 99.9
+            except Exception:
+                return False
+        return False
+
+    def selector(
+        self,
+        selected_items: List[Any],
+        *,
+        ctx: Any,
+        stage_is_last: bool = True,
+        **_kwargs: Any,
+    ) -> bool:
+        if not stage_is_last or len(selected_items or []) != 1:
+            return False
+        item = selected_items[0]
+        table_kind = self._item_table(item)
+        plugin_name = self._item_plugin(item)
+        if plugin_name not in {"", "torrent"} and table_kind not in {"plugin.jobs", "torrent.jobs"}:
+            return False
+        if table_kind and table_kind not in {"plugin.jobs", "torrent.jobs", "torrent"}:
+            return False
+        job_id = self._job_id_from_item(item)
+        if not job_id:
+            return False
+        try:
+            from .engine import get_engine
+
+            engine = get_engine()
+            job = engine.get(job_id)
+        except Exception:
+            return False
+        if not self._progress_is_complete(item, job):
+            return False
+        files = engine.list_files(job_id)
+        if not files:
+            return False
+        try:
+            from SYS.result_table import Table
+            from SYS.rich_display import stdout_console
+        except Exception:
+            return True
+        title = str((job.title if job is not None else None) or (item.get("title") if isinstance(item, dict) else "") or job_id)
+        table = Table(f"Torrent files: {title}")._perseverance(True)
+        table.set_table("torrent.files")
+        try:
+            table.set_table_metadata({"plugin": "torrent", "view": "files", "job_id": job_id})
+        except Exception:
+            pass
+        payloads: List[Dict[str, Any]] = []
+        for row in files:
+            payload = {
+                **row,
+                "columns": [
+                    ("Name", row.get("title") or row.get("name") or ""),
+                    ("Size", row.get("size") or ""),
+                    ("Progress", row.get("progress") or ""),
+                    ("Path", row.get("path") or ""),
+                ],
+            }
+            table.add_result(payload)
+            payloads.append(payload)
+        try:
+            ctx.set_last_result_table(
+                table,
+                payloads,
+                subject={"plugin": "torrent", "job_id": job_id, "view": "files"},
+            )
+            ctx.set_current_stage_table(table)
+        except Exception:
+            pass
+        try:
+            stdout_console().print()
+            stdout_console().print(table)
+        except Exception:
+            pass
+        return True
+
     def _downloader_mode(self) -> str:
         bags: List[Dict[str, Any]] = []
         try:

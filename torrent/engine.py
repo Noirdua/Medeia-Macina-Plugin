@@ -370,6 +370,102 @@ class TorrentEngine:
         with self._lock:
             return self._jobs.get(str(job_id or "").strip())
 
+    def is_complete(self, job_id: str) -> bool:
+        job = self.get(job_id)
+        if job is None:
+            return False
+        if float(job.progress or 0) >= 0.999:
+            return True
+        return str(job.status or "").strip().lower() in {"done", "finished", "seeding"}
+
+    def list_files(self, job_id: str) -> List[Dict[str, Any]]:
+        job = self.get(job_id)
+        if job is None:
+            return []
+        rows: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        root = Path(job.save_path)
+
+        def _add(rel: str, size: int, done: Optional[int] = None) -> None:
+            rel_text = str(rel or "").replace("\\", "/").strip("/")
+            if not rel_text:
+                return
+            full = (root / rel_text) if not Path(rel_text).is_absolute() else Path(rel_text)
+            key = str(full)
+            if key in seen:
+                return
+            seen.add(key)
+            name = Path(rel_text).name
+            size_int = int(size or 0)
+            pct = ""
+            if done is not None and size_int > 0:
+                pct = f"{min(100.0, float(done) / float(size_int) * 100.0):.1f}%"
+            elif full.is_file():
+                pct = "100.0%"
+            rows.append(
+                {
+                    "title": rel_text,
+                    "name": name,
+                    "path": str(full),
+                    "size_bytes": size_int,
+                    "size": format_bytes(size_int),
+                    "exists": full.is_file(),
+                    "plugin": "torrent",
+                    "table": "torrent.files",
+                    "job_id": job.job_id,
+                    "progress": pct,
+                }
+            )
+
+        handle = job.handle
+        ti = None
+        if handle is not None:
+            try:
+                if hasattr(handle, "torrent_file"):
+                    ti = handle.torrent_file()
+                elif hasattr(handle, "get_torrent_info"):
+                    ti = handle.get_torrent_info()
+            except Exception:
+                ti = None
+        if ti is not None:
+            try:
+                fs = ti.files()
+                count = int(fs.num_files())
+                prog = None
+                try:
+                    prog = list(handle.file_progress())
+                except Exception:
+                    prog = None
+                for idx in range(count):
+                    if hasattr(fs, "file_path"):
+                        rel = fs.file_path(idx)
+                    else:
+                        rel = fs.at(idx).path
+                    if hasattr(fs, "file_size"):
+                        size = int(fs.file_size(idx))
+                    else:
+                        size = int(fs.at(idx).size)
+                    done = int(prog[idx]) if prog is not None and idx < len(prog) else None
+                    _add(str(rel), size, done)
+            except Exception:
+                rows.clear()
+                seen.clear()
+        if not rows and root.exists():
+            if root.is_file():
+                _add(root.name, int(root.stat().st_size))
+            else:
+                for path in sorted(p for p in root.rglob("*") if p.is_file()):
+                    try:
+                        rel = str(path.relative_to(root))
+                    except Exception:
+                        rel = path.name
+                    try:
+                        size = int(path.stat().st_size)
+                    except Exception:
+                        size = 0
+                    _add(rel, size)
+        return rows
+
     def pause(self, job_id: str) -> bool:
         job = self.get(job_id)
         if job is None or job.handle is None:
