@@ -307,6 +307,11 @@ class Matrix(TablePluginMixin, Plugin):
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = "Matrix homeserver file search and upload."
     SUPPORTED_CMDLETS = frozenset({"add-file", "search-file"})
+    QUERY_ARG_CHOICES = {
+        "instance": [],
+        "room": [],
+    }
+    INLINE_QUERY_FIELD_CHOICES = QUERY_ARG_CHOICES
 
     @classmethod
     def config_schema(cls) -> List[Dict[str, Any]]:
@@ -333,6 +338,147 @@ class Matrix(TablePluginMixin, Plugin):
     def _active_instance_config(self, instance_name: Optional[str] = None) -> Dict[str, Any]:
         _resolved, cfg = self.resolve_plugin_instance(instance_name)
         return cfg if isinstance(cfg, dict) else {}
+
+    def extract_query_arguments(self, query: str) -> Tuple[str, Dict[str, Any]]:
+        from PluginCore.base import parse_inline_query_arguments
+
+        leftover, fields = parse_inline_query_arguments(query)
+        return leftover, fields
+
+    def query_field_choices(self) -> Dict[str, List[Any]]:
+        return {
+            "instance": list(self.configured_instances() or []),
+            "room": self.room_choice_names(),
+        }
+
+    @staticmethod
+    def _normalize_cached_rooms(raw: Any) -> List[Dict[str, str]]:
+        rows: List[Dict[str, str]] = []
+        if not isinstance(raw, (list, tuple)):
+            return rows
+        seen: set[str] = set()
+        for entry in raw:
+            room_id = ""
+            name = ""
+            if isinstance(entry, dict):
+                room_id = str(entry.get("room_id") or entry.get("id") or "").strip()
+                name = str(entry.get("name") or "").strip()
+            else:
+                continue
+            if not room_id or not name:
+                continue
+            key = room_id.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({"room_id": room_id, "name": name})
+        return rows
+
+    def cached_named_rooms(self, instance_name: Optional[str] = None) -> List[Dict[str, str]]:
+        if instance_name:
+            cfg = self._active_instance_config(instance_name)
+            return self._normalize_cached_rooms(cfg.get("cached_rooms"))
+        out: List[Dict[str, str]] = []
+        seen: set[str] = set()
+        for name, cfg in (self.plugin_instance_configs() or {}).items():
+            for row in self._normalize_cached_rooms((cfg or {}).get("cached_rooms")):
+                key = row["room_id"].casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(row)
+        if out:
+            return out
+        cfg = self._active_instance_config(None)
+        return self._normalize_cached_rooms(cfg.get("cached_rooms"))
+
+    def room_choice_names(self, instance_name: Optional[str] = None) -> List[str]:
+        names: List[str] = []
+        seen: set[str] = set()
+        for row in self.cached_named_rooms(instance_name):
+            name = str(row.get("name") or "").strip()
+            key = name.casefold()
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            names.append(name)
+        return names
+
+    def resolve_cached_room(self, value: str, instance_name: Optional[str] = None) -> Optional[str]:
+        cand = str(value or "").strip()
+        if not cand:
+            return None
+        if cand.startswith("!"):
+            return cand
+        needle = cand.casefold()
+        exact = ""
+        partial = ""
+        for row in self.cached_named_rooms(instance_name):
+            name = str(row.get("name") or "").strip()
+            rid = str(row.get("room_id") or "").strip()
+            if not name or not rid:
+                continue
+            lowered = name.casefold()
+            if lowered == needle:
+                exact = rid
+                break
+            if not partial and needle in lowered:
+                partial = rid
+        return exact or partial or None
+
+    def persist_cached_rooms(
+        self,
+        rooms: List[Dict[str, str]],
+        instance_name: Optional[str] = None,
+    ) -> bool:
+        try:
+            from SYS.config import load_config, save_config
+        except Exception:
+            return False
+        payload = self._normalize_cached_rooms(rooms)
+        resolved_name, _cfg = self.resolve_plugin_instance(instance_name)
+        try:
+            current = load_config() or {}
+            plugins = current.setdefault("plugin", {})
+            if not isinstance(plugins, dict):
+                plugins = {}
+                current["plugin"] = plugins
+            matrix = plugins.setdefault("matrix", {})
+            if not isinstance(matrix, dict):
+                matrix = {}
+                plugins["matrix"] = matrix
+            instances = self.plugin_instance_configs()
+            key = str(resolved_name or "").strip() or "default"
+            if set(instances.keys()) == {"default"}:
+                target = matrix
+            else:
+                target = matrix.get(key)
+                if not isinstance(target, dict):
+                    target = {}
+                    matrix[key] = target
+            target["cached_rooms"] = payload
+            save_config(current)
+            live_root = (self.config or {}).get("plugin")
+            if isinstance(live_root, dict):
+                live_matrix = live_root.get("matrix")
+                if isinstance(live_matrix, dict):
+                    if set(instances.keys()) == {"default"}:
+                        live_matrix["cached_rooms"] = payload
+                    else:
+                        live_block = live_matrix.get(key)
+                        if isinstance(live_block, dict):
+                            live_block["cached_rooms"] = payload
+                        else:
+                            live_matrix[key] = {"cached_rooms": payload}
+            return True
+        except Exception:
+            return False
+
+    def refresh_room_cache(self, instance_name: Optional[str] = None) -> List[Dict[str, str]]:
+        rooms = self.list_rooms(instance_name=instance_name)
+        named = self._normalize_cached_rooms(rooms)
+        self.persist_cached_rooms(named, instance_name=instance_name)
+        return named
 
     @staticmethod
     def _instance_has_credentials(cfg: Dict[str, Any]) -> bool:
@@ -462,12 +608,12 @@ class Matrix(TablePluginMixin, Plugin):
             raise Exception("Matrix homeserver missing")
         return base, str(access_token)
 
-    def list_joined_room_ids(self) -> List[str]:
+    def list_joined_room_ids(self, instance_name: Optional[str] = None) -> List[str]:
         """Return joined room IDs for the current user.
 
         Uses `GET /_matrix/client/v3/joined_rooms`.
         """
-        base, token = self._get_homeserver_and_token()
+        base, token = self._get_homeserver_and_token(instance_name)
         headers = {
             "Authorization": f"Bearer {token}"
         }
@@ -487,21 +633,23 @@ class Matrix(TablePluginMixin, Plugin):
             out.append(rid.strip())
         return out
 
-    def list_rooms(self,
-                   *,
-                   room_ids: Optional[List[str]] = None) -> List[Dict[str,
-                                                                      Any]]:
+    def list_rooms(
+        self,
+        *,
+        room_ids: Optional[List[str]] = None,
+        instance_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Return joined rooms, optionally limited to a subset.
 
         Performance note: room names require additional per-room HTTP requests.
         If `room_ids` is provided, only those rooms will have name lookups.
         """
-        base, token = self._get_homeserver_and_token()
+        base, token = self._get_homeserver_and_token(instance_name)
+        joined = self.list_joined_room_ids(instance_name)
         headers = {
             "Authorization": f"Bearer {token}"
         }
 
-        joined = self.list_joined_room_ids()
         if room_ids:
             allowed = {str(v).strip().casefold()
                        for v in room_ids if str(v).strip()}

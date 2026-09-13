@@ -8,7 +8,7 @@ import re
 import uuid
 from urllib.parse import parse_qs, urlparse
 
-from SYS.cmdlet_spec import Cmdlet, CmdletArg
+from SYS.cmdlet_spec import Cmdlet, CmdletArg, QueryArg, SharedArgs
 from SYS.config import load_config, save_config
 from SYS.logger import log, debug
 from SYS.result_table import Table
@@ -22,6 +22,7 @@ from SYS.command_parsing import (
     normalize_to_list as _normalize_to_list,
 )
 from SYS import pipeline as ctx
+from PluginCore.base import parse_inline_query_arguments
 from PluginCore.registry import get_plugin, get_plugin_for_url
 
 _MATRIX_PENDING_ITEMS_KEY = "matrix_pending_items"
@@ -228,21 +229,44 @@ def _extract_room_arg(args: Sequence[str]) -> Optional[str]:
     return None
 
 
-def _resolve_room_identifier(value: str, config: Dict[str, Any]) -> Optional[str]:
-    """Resolve a user-provided room identifier (display name or id) to a Matrix room_id.
+def _extract_instance_arg(args: Sequence[str]) -> Optional[str]:
+    return extract_arg_value(args, flags=("-instance", "--instance"))
 
-    Returns the canonical room_id string on success, otherwise None.
-    """
+
+def _query_fields_from_args(args: Sequence[str]) -> Dict[str, str]:
+    raw = extract_arg_value(args, flags=("-query", "--query"))
+    if not raw:
+        return {}
+    _leftover, fields = parse_inline_query_arguments(str(raw))
+    out: Dict[str, str] = {}
+    for key, value in (fields or {}).items():
+        text = str(value or "").strip()
+        if text:
+            out[str(key).strip().lower()] = text
+    return out
+
+
+def _resolve_room_identifier(
+    value: str,
+    config: Dict[str, Any],
+    instance_name: Optional[str] = None,
+) -> Optional[str]:
     try:
         cand = str(value or "").strip()
         if not cand:
             return None
 
-        # If looks like an id already (starts with '!'), accept it as-is
         if cand.startswith("!"):
             return cand
 
-        # First try to resolve against configured default rooms (fast, local)
+        try:
+            provider = _get_matrix_provider(config)
+            cached = provider.resolve_cached_room(cand, instance_name)
+            if cached:
+                return cached
+        except Exception:
+            pass
+
         conf_ids = _parse_config_room_filter_ids(config)
         if conf_ids:
             # Attempt to fetch names for the configured IDs
@@ -857,6 +881,10 @@ def _show_default_room_picker(config: Dict[str, Any], *, provider: Optional[Any]
 
     try:
         rooms = provider.list_rooms()
+        try:
+            provider.persist_cached_rooms(rooms)
+        except Exception:
+            pass
     except Exception as exc:
         log(f"Failed to list Matrix rooms: {exc}", file=sys.stderr)
         return 1
@@ -984,6 +1012,10 @@ def _show_rooms_table(config: Dict[str, Any]) -> int:
                 configured_ids = ids
 
         rooms = provider.list_rooms(room_ids=configured_ids)
+        try:
+            provider.persist_cached_rooms(rooms)
+        except Exception:
+            pass
     except Exception as exc:
         log(f"Failed to list Matrix rooms: {exc}", file=sys.stderr)
         return 1
@@ -1046,6 +1078,42 @@ def _show_rooms_table(config: Dict[str, Any]) -> int:
     return 0
 
 
+def _refresh_rooms(config: Dict[str, Any], args: Sequence[str]) -> int:
+    instance_name = _extract_instance_arg(args) or _query_fields_from_args(args).get("instance")
+    try:
+        provider = _get_matrix_provider(config)
+    except Exception as exc:
+        log(f"Matrix not available: {exc}", file=sys.stderr)
+        return 1
+    try:
+        named = provider.refresh_room_cache(instance_name)
+    except Exception as exc:
+        log(f"Failed to refresh Matrix rooms: {exc}", file=sys.stderr)
+        return 1
+    if not named:
+        log("No named Matrix rooms found (blank names are skipped for autocomplete).", file=sys.stderr)
+        return 0
+    table = Table("Matrix rooms (cached)")
+    table.set_table("matrix")
+    items: List[Dict[str, Any]] = []
+    for room in named:
+        name = str(room.get("name") or "").strip()
+        room_id = str(room.get("room_id") or "").strip()
+        row = table.add_row()
+        row.add_column("Name", name)
+        row.add_column("Room", room_id)
+        items.append({
+            "room_id": room_id,
+            "name": name,
+            "title": name or room_id,
+            "plugin": "matrix",
+        })
+    ctx.set_last_result_table_overlay(table, items)
+    ctx.set_current_stage_table(table)
+    log(f"Cached {len(named)} named Matrix room(s). Autocomplete uses these until the next refresh.")
+    return 0
+
+
 def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
     """Main Matrix cmdlet execution.
     
@@ -1056,6 +1124,13 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
     4. -send: Send files to selected room(s) (when uploading)
     5. -settings-edit: Handle settings modification
     """
+    if (
+        _has_flag(args, "-refresh-rooms")
+        or _has_flag(args, "--refresh-rooms")
+        or _has_flag(args, "-update-rooms")
+    ):
+        return _refresh_rooms(config, args)
+
     # Handle menu selection routing
     if _has_flag(args, "-menu-select"):
         return _handle_menu_selection(result, config)
@@ -1210,13 +1285,17 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
     if selected_items:
         # If user provided a -room argument, resolve it and send to the target(s)
         room_arg = _extract_room_arg(args)
+        query_fields = _query_fields_from_args(args)
+        if not room_arg:
+            room_arg = query_fields.get("room")
+        instance_name = _extract_instance_arg(args) or query_fields.get("instance")
         if room_arg:
             # Support comma-separated list of room names/ids
             requested = [r.strip() for r in room_arg.split(",") if r.strip()]
             resolved_ids: List[str] = []
             for req in requested:
                 try:
-                    rid = _resolve_room_identifier(req, config)
+                    rid = _resolve_room_identifier(req, config, instance_name)
                     if rid:
                         resolved_ids.append(rid)
                 except Exception:
@@ -1240,8 +1319,25 @@ CMDLET = Cmdlet(
     alias=["matrix",
            "rooms"],
     summary="Send selected items to a Matrix room or manage settings",
-    usage="@N | .matrix",
+    usage='@N | .matrix  |  .matrix -refresh-rooms  |  @N | .matrix -query "instance:NAME,room:Room"',
     arg=[
+        SharedArgs.INSTANCE,
+        SharedArgs.QUERY,
+        QueryArg(
+            "room",
+            key="room",
+            type="string",
+            required=False,
+            query_only=True,
+            description="Cached room display name (use -query room:NAME)",
+        ),
+        CmdletArg(
+            name="refresh-rooms",
+            type="flag",
+            description="Fetch joined rooms and cache named rooms for autocomplete",
+            required=False,
+            alias="update-rooms",
+        ),
         CmdletArg(
             name="send",
             type="bool",
@@ -1287,7 +1383,7 @@ CMDLET = Cmdlet(
         CmdletArg(
             name="room",
             type="string",
-            description="Target room (name or id). Comma-separated values supported. Autocomplete uses configured defaults.",
+            description="Target room (cached display name or id). Comma-separated values supported.",
             required=False,
         ),
         CmdletArg(
