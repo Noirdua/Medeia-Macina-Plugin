@@ -701,7 +701,8 @@ class Matrix(TablePluginMixin, Plugin):
         if not room_id:
             raise Exception("Matrix room_id missing")
 
-        base, token = self._get_homeserver_and_token()
+        instance_name = str(kwargs.get("instance") or "").strip() or None
+        base, token = self._get_homeserver_and_token(instance_name)
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/octet-stream",
@@ -827,13 +828,40 @@ class Matrix(TablePluginMixin, Plugin):
         )
 
     def upload(self, file_path: str, **kwargs: Any) -> str:
-        matrix_conf = self.config.get("plugin",
-                                      {}).get("matrix",
-                                              {})
-        room_id = matrix_conf.get("room_id")
+        instance_name = self.requested_instance_name(
+            kwargs.get("filters") if isinstance(kwargs.get("filters"), dict) else None,
+            **kwargs,
+        )
+        room_raw = str(
+            kwargs.get("room")
+            or kwargs.get("room_id")
+            or ""
+        ).strip()
+        filters = kwargs.get("filters")
+        if not room_raw and isinstance(filters, dict):
+            room_raw = str(filters.get("room") or filters.get("room_id") or "").strip()
+        room_id = ""
+        if room_raw:
+            resolved = self.resolve_cached_room(room_raw, instance_name)
+            room_id = str(resolved or (room_raw if room_raw.startswith("!") else "")).strip()
         if not room_id:
-            raise Exception("Matrix room_id missing")
-        return self.upload_to_room(file_path, str(room_id))
+            cfg = self._active_instance_config(instance_name)
+            fallback = str(cfg.get("room_id") or cfg.get("room") or "").strip()
+            if fallback:
+                resolved = self.resolve_cached_room(fallback, instance_name)
+                room_id = str(resolved or fallback).strip()
+        if not room_id:
+            raise Exception(
+                'Matrix room missing. Use -query "instance:NAME,room:Room" '
+                "after .matrix -refresh-rooms, or set a default room."
+            )
+        return self.upload_to_room(
+            file_path,
+            room_id,
+            instance=instance_name,
+            pipe_obj=kwargs.get("pipe_obj"),
+            mime_type=kwargs.get("mime_type"),
+        )
 
     def selector(
         self,

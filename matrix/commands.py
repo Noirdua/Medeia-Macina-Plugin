@@ -151,41 +151,13 @@ def _parse_config_room_filter_ids(config: Dict[str, Any]) -> List[str]:
         return []
 
 
-def _get_matrix_size_limit_bytes(config: Dict[str, Any]) -> Optional[int]:
-    """Return max allowed per-file size in bytes for Matrix uploads.
-
-    Config: [plugin=matrix] size_limit=50   # MB
-    """
+def _get_matrix_size_limit_bytes(
+    config: Dict[str, Any],
+    instance_name: Optional[str] = None,
+) -> Optional[int]:
     try:
-        matrix_conf = _get_matrix_config_block(config)
-        if not matrix_conf:
-            return None
-
-        raw = None
-        for key in ("size_limit", "size_limit_mb", "max_mb"):
-            if key in matrix_conf:
-                raw = matrix_conf.get(key)
-                break
-        if raw is None:
-            return None
-
-        mb: Optional[float] = None
-        if isinstance(raw, (int, float)):
-            mb = float(raw)
-        else:
-            text = str(raw or "").strip().lower()
-            if not text:
-                return None
-            m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(mb|mib|m)?", text)
-            if not m:
-                return None
-            mb = float(m.group(1))
-
-        if mb is None or mb <= 0:
-            return None
-
-        # Use MiB semantics for predictable limits.
-        return int(mb * 1024 * 1024)
+        provider = _get_matrix_provider(config)
+        return provider.upload_size_limit_bytes(instance_name)
     except Exception:
         return None
 
