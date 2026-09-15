@@ -1603,7 +1603,7 @@ class HydrusStoreOperations:
             title_predicates: list[str] = []
             freeform_predicates: list[str] = []
 
-            structured_tags = _build_structured_search_tags(raw_query)
+            structured_tags = _build_structured_search_tags(query)
 
             if query.strip() == "*":
                 if ext_only and ext_filter and ext_filter in _EXT_TO_HYDRUS_FILETYPE:
