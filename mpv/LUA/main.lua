@@ -4234,7 +4234,13 @@ local function _is_ytdlp_url(u)
     if not low:match('^https?://') then
         return false
     end
-    if low:find('youtube.com', 1, true) or low:find('youtu.be', 1, true) or low:find('googlevideo.com', 1, true) then
+    -- Direct media CDNs are already-resolved streams, not page URLs.
+    if low:find('googlevideo.com', 1, true)
+        or low:find('googleusercontent.com', 1, true)
+        or low:find('ytimg.com', 1, true) then
+        return false
+    end
+    if low:find('youtube.com', 1, true) or low:find('youtu.be', 1, true) then
         return true
     end
 
@@ -4582,12 +4588,17 @@ function M._sync_current_web_url_from_playback()
         _set_current_web_url(nil)
         return
     end
+    -- Keep the page URL if playback switched to a resolved CDN stream.
+    local current = _get_current_web_url()
+    if current and current ~= '' and target_str ~= '' and not _is_ytdlp_url(target_str) then
+        return
+    end
     if target_str ~= '' and _is_http_url(target_str) and _is_ytdlp_url(target_str) then
         _set_current_web_url(target_str)
         return
     end
 
-    local current = _get_current_web_url()
+    current = _get_current_web_url()
     if current and current ~= '' then
         local raw = mp.get_property_native('ytdl-raw-info')
         if type(raw) == 'table' then
@@ -4766,7 +4777,53 @@ function M._get_cached_formats_table(url)
     if type(hit) == 'table' and type(hit.table) == 'table' then
         return hit.table
     end
+    local page = _get_current_web_url()
+    if page and page ~= '' and page ~= url then
+        hit = _formats_cache[page]
+        if type(hit) == 'table' and type(hit.table) == 'table' then
+            return hit.table
+        end
+    end
     return nil
+end
+
+function M._load_formats_sidecar()
+    local temp = trim(tostring(mp.get_property('user-data/medeia-config-temp') or os.getenv('TEMP') or os.getenv('TMP') or ''))
+    if temp == '' then
+        return nil, nil
+    end
+    local path = utils.join_path(temp, 'medeia-last-formats.json')
+    local fh = io.open(path, 'r')
+    if not fh then
+        return nil, nil
+    end
+    local raw = fh:read('*a')
+    fh:close()
+    raw = trim(tostring(raw or ''))
+    if raw == '' then
+        return nil, nil
+    end
+    local ok, payload = pcall(utils.parse_json, raw)
+    if not ok or type(payload) ~= 'table' then
+        return nil, nil
+    end
+    local page_url = trim(tostring(payload.url or ''))
+    local tbl = payload.table
+    if page_url == '' or type(tbl) ~= 'table' or type(tbl.rows) ~= 'table' then
+        return nil, nil
+    end
+    return page_url, tbl
+end
+
+function M._apply_formats_sidecar(reason)
+    local page_url, tbl = M._load_formats_sidecar()
+    if not page_url or not tbl then
+        return false
+    end
+    _set_current_web_url(page_url)
+    M._cache_formats_for_url(page_url, tbl)
+    _lua_log('formats: applied sidecar rows=' .. tostring(#tbl.rows) .. ' url=' .. page_url .. ' reason=' .. tostring(reason or ''))
+    return true
 end
 
 function M._format_bytes_compact(size_bytes)
@@ -6019,6 +6076,7 @@ end)
 
 -- Prefetch formats for yt-dlp-supported URLs on load so Change Format is instant.
 mp.register_event('file-loaded', function()
+    pcall(M._apply_formats_sidecar, 'file-loaded')
     M._sync_current_web_url_from_playback()
     M._attempt_start_lyric_helper_async('file-loaded')
     M._schedule_web_subtitle_activation('file-loaded')
@@ -6812,6 +6870,7 @@ mp.register_script_message('medios-load-url-event', function(json)
 
     mp.osd_message('Loading URL...', 1)
     _log_all('INFO', 'Load URL started: ' .. url)
+    _set_current_web_url(url)
     _lua_log('[LOAD-URL] Starting to load: ' .. url)
     _set_current_web_url(url)
     if _is_ytdlp_url(url) then
@@ -6858,14 +6917,8 @@ mp.register_script_message('medios-load-url-event', function(json)
             _lua_log('[LOAD-URL] ytdlp plugin loaded via helper loaded=' .. tostring(loaded))
             _log_all('INFO', 'Load URL via ytdlp plugin')
             mp.osd_message('URL loaded', 2)
-            local formats_table = type(data) == 'table' and data.formats_table or (type(resp) == 'table' and resp.table)
-            if type(formats_table) == 'table' and type(formats_table.rows) == 'table' then
-                M._cache_formats_for_url(url, formats_table)
-                if type(M.file) == 'table' and M.file.set_formats then
-                    M.file:set_formats(url, formats_table)
-                end
-                _lua_log('[LOAD-URL] cached ' .. tostring(#formats_table.rows) .. ' formats from resolve')
-            end
+            _set_current_web_url(url)
+            pcall(M._apply_formats_sidecar, 'resolve-callback')
             mp.add_timeout(0.5, function()
                 M._prefetch_formats_for_url(url)
                 M._schedule_uosc_cursor_resync('file-loaded-web')

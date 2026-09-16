@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-16.3"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-16.4"
 
 import argparse
 import json
@@ -1217,30 +1217,40 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
             title = str(payload.get("title") or "").strip()
             _append_helper_log(f"[ytdlp-resolve] ok title={title}")
             loaded = _load_resolved_playback(payload)
-            formats_table = None
+            formats_count = 0
             try:
                 fmt_payload = _run_op("ytdlp-formats", {"url": url})
-                if isinstance(fmt_payload, dict) and isinstance(fmt_payload.get("table"), dict):
-                    formats_table = fmt_payload.get("table")
-                    rows = formats_table.get("rows") if isinstance(formats_table, dict) else None
+                formats_table = (
+                    fmt_payload.get("table") if isinstance(fmt_payload, dict) else None
+                )
+                if isinstance(formats_table, dict):
+                    rows = formats_table.get("rows")
+                    formats_count = len(rows) if isinstance(rows, list) else 0
+                    sidecar = Path(tempfile.gettempdir()) / "medeia-last-formats.json"
+                    tmp = sidecar.with_suffix(".tmp")
+                    tmp.write_text(
+                        json.dumps({"url": url, "table": formats_table}, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                    os.replace(tmp, sidecar)
                     _append_helper_log(
-                        f"[ytdlp-resolve] attached formats rows={len(rows) if isinstance(rows, list) else 0}"
+                        f"[ytdlp-resolve] wrote formats sidecar rows={formats_count} path={sidecar}"
                     )
             except Exception as fmt_exc:
                 _append_helper_log(
-                    f"[ytdlp-resolve] formats attach failed: {type(fmt_exc).__name__}: {fmt_exc}"
+                    f"[ytdlp-resolve] formats sidecar failed: {type(fmt_exc).__name__}: {fmt_exc}"
                 )
             return {
                 "success": bool(loaded),
                 "stdout": "",
                 "stderr": "",
                 "error": None if loaded else "loadfile failed",
-                "table": formats_table,
+                "table": None,
                 "data": {
                     "title": title,
                     "loaded": bool(loaded),
                     "url": url,
-                    "formats_table": formats_table,
+                    "formats_count": formats_count,
                 },
             }
         except Exception as exc:
