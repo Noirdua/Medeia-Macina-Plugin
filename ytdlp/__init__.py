@@ -324,12 +324,16 @@ def _list_formats_cached(
     key = f"{url}||{playlist_items_value or ''}"
     if key in formats_cache:
         return formats_cache[key]
-    fmts = list_formats(
-        url,
-        no_playlist=False,
-        playlist_items=playlist_items_value,
-        cookiefile=_cookiefile_str(ytdlp_tool),
-    )
+    try:
+        fmts = list_formats(
+            url,
+            no_playlist=False,
+            playlist_items=playlist_items_value,
+            cookiefile=_cookiefile_str(ytdlp_tool),
+        )
+    except Exception as exc:
+        debug(f"[ytdlp] list_formats failed for {url}: {exc}")
+        fmts = None
     formats_cache[key] = fmts
     return fmts
 

@@ -496,7 +496,8 @@ def _formats_cache_key(
     playlist_items: Optional[str],
     cookiefile: Optional[str],
 ) -> str:
-    payload = f"{url}|{no_playlist}|{playlist_items}|{cookiefile}"
+    _ = cookiefile
+    payload = f"{url}|{no_playlist}|{playlist_items}"
     return hashlib.md5(payload.encode()).hexdigest()
 
 
@@ -733,10 +734,10 @@ def list_formats(
 
     if thread.is_alive():
         debug(f"yt-dlp format probe timed out for {url} (>={timeout_seconds}s)")
-        return None
+        raise TimeoutError(f"yt-dlp format probe timed out after {timeout_seconds}s")
 
     if result_container[1] is not None:
-        return None
+        raise result_container[1]
 
     if result_container[0] is not None:
         _FORMATS_CACHE[cache_key] = (now, cast(List[Dict[str, Any]], result_container[0]))

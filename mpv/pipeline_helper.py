@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-04.1"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-16.1"
 
 import argparse
 import json
@@ -1009,6 +1009,7 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                     "error": "Missing url",
                     "table": None,
                 }
+            _append_helper_log(f"[ytdlp-formats] request url={url}")
 
             cfg = load_config() or {}
             plugin = get_plugin("ytdlp", cfg)
@@ -1037,6 +1038,7 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                 }
 
             if formats is None:
+                _append_helper_log(f"[ytdlp-formats] probe returned none url={url}")
                 return {
                     "success": False,
                     "stdout": "",

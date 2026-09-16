@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-04.1'
+    local MEDEIA_LUA_VERSION = '2026-09-16.1'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -5090,80 +5090,23 @@ function M._run_formats_probe_async(url, cb)
         return
     end
 
-    local python = _resolve_python_exe(false)
-    if not python or python == '' then
-        cb(nil, 'no python executable available')
-        return
-    end
-
-    local probe_script = _detect_format_probe_script()
-    if probe_script == '' then
-        cb(nil, 'format_probe.py not found')
-        return
-    end
-
-    local cwd = _detect_repo_root()
-    _lua_log('formats-probe: spawning subprocess python=' .. tostring(python) .. ' script=' .. tostring(probe_script) .. ' cwd=' .. tostring(cwd or '') .. ' url=' .. tostring(url))
-
-    mp.command_native_async(
-        {
-            name = 'subprocess',
-            args = { python, probe_script, url },
-            capture_stdout = true,
-            capture_stderr = true,
-            playback_only = false,
-        },
-        function(success, result, err)
-            if not success then
-                cb(nil, tostring(err or 'subprocess failed'))
-                return
-            end
-
-            if type(result) ~= 'table' then
-                cb(nil, 'invalid subprocess result')
-                return
-            end
-
-            local status = tonumber(result.status or 0) or 0
-            local stdout = trim(tostring(result.stdout or ''))
-            local stderr = trim(tostring(result.stderr or ''))
-            if stdout == '' then
-                local detail = stderr
-                if detail == '' then
-                    detail = tostring(result.error or ('format probe exited with status ' .. tostring(status)))
-                end
-                cb(nil, detail)
-                return
-            end
-
-            local ok, payload = pcall(utils.parse_json, stdout)
-            if (not ok or type(payload) ~= 'table') and stdout ~= '' then
-                local last_json_line = nil
-                for line in stdout:gmatch('[^\r\n]+') do
-                    line = trim(tostring(line or ''))
-                    if line ~= '' then
-                        last_json_line = line
-                    end
-                end
-                if last_json_line and last_json_line ~= stdout then
-                    _lua_log('formats-probe: retrying json parse from last stdout line')
-                    ok, payload = pcall(utils.parse_json, last_json_line)
-                end
-            end
-            if not ok or type(payload) ~= 'table' then
-                cb(nil, 'invalid format probe json')
-                return
-            end
-
-            if not payload.success then
-                local detail = tostring(payload.error or payload.stderr or stderr or 'format probe failed')
-                cb(payload, detail)
-                return
-            end
-
-            cb(payload, nil)
+    _lua_log('formats-probe: requesting ytdlp-formats via helper ipc url=' .. tostring(url))
+    _run_helper_request_async({ op = 'ytdlp-formats', data = { url = url } }, 45, function(resp, err)
+        if err then
+            cb(nil, tostring(err))
+            return
         end
-    )
+        if type(resp) ~= 'table' then
+            cb(nil, 'invalid format probe response')
+            return
+        end
+        if not resp.success then
+            local detail = tostring(resp.error or resp.stderr or 'format probe failed')
+            cb(resp, detail)
+            return
+        end
+        cb(resp, nil)
+    end)
 end
 
 function M._schedule_playback_format_cache_poll(url, generation, attempt)
