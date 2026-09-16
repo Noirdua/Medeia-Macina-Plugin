@@ -1226,10 +1226,13 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                 if isinstance(formats_table, dict):
                     rows = formats_table.get("rows")
                     formats_count = len(rows) if isinstance(rows, list) else 0
-                    sidecar = Path(tempfile.gettempdir()) / "medeia-last-formats.json"
+                    sidecar = _config_temp_dir() / "medeia-last-formats.json"
                     tmp = sidecar.with_suffix(".tmp")
                     tmp.write_text(
-                        json.dumps({"url": url, "table": formats_table}, ensure_ascii=False),
+                        json.dumps(
+                            {"url": url, "table": formats_table, "ts": time.time()},
+                            ensure_ascii=False,
+                        ),
                         encoding="utf-8",
                     )
                     os.replace(tmp, sidecar)
@@ -1335,20 +1338,43 @@ def restore_windows_cursor(reason: str = "") -> None:
         hidden = True
         if user32.GetCursorInfo(ctypes.byref(info)):
             hidden = not bool(info.flags & 0x1)
+
+        # Only drive the counter when the cursor is actually hidden; calling
+        # ShowCursor(TRUE) while it is visible would inflate the counter and
+        # make later legitimate hides ineffective.
         visible_count = 0
-        for _ in range(64):
-            visible_count = int(user32.ShowCursor(True))
-            if visible_count >= 0:
-                break
-        arrow = user32.LoadCursorW(None, 32512)  # IDC_ARROW
-        if arrow:
-            user32.SetCursor(arrow)
+        if hidden:
+            arrow = user32.LoadCursorW(None, 32512)  # IDC_ARROW
+            for _ in range(64):
+                visible_count = int(user32.ShowCursor(True))
+                if visible_count >= 0:
+                    break
+            if arrow:
+                user32.SetCursor(arrow)
         if reason:
             _append_helper_log(
-                f"[helper] restored Windows cursor reason={reason} was_hidden={hidden} count={visible_count}"
+                f"[helper] cursor check reason={reason} was_hidden={hidden} count={visible_count}"
             )
     except Exception:
         return
+
+
+def _config_temp_dir() -> Path:
+    """Temp dir used for cross-process artifacts; mirrors the published value."""
+    temp_dir = ""
+    try:
+        cfg = load_config()
+        temp_dir = str(cfg.get("temp", "") or "").strip()
+    except Exception:
+        temp_dir = ""
+    if not temp_dir:
+        temp_dir = (
+            os.getenv("TEMP")
+            or os.getenv("TMP")
+            or tempfile.gettempdir()
+            or "/tmp"
+        )
+    return Path(temp_dir)
 
 
 def _helper_log_path() -> str:
@@ -2235,8 +2261,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Also publish config temp directory if available
     try:
-        cfg = load_config()
-        temp_dir = cfg.get("temp", "").strip() or os.getenv("TEMP") or "/tmp"
+        temp_dir = str(_config_temp_dir())
         if temp_dir:
             _send_helper_command(
                 ["set_property_string",
