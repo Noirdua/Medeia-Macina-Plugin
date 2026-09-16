@@ -5968,10 +5968,17 @@ mp.register_script_message('medios-download-current', function()
 end)
 
 mp.register_script_message('medios-change-format-current', function()
-    local target = _current_url_for_web_actions() or _current_target()
+    pcall(M._apply_formats_sidecar, 'change-format')
+    local target = _get_current_web_url() or _current_url_for_web_actions() or _current_target()
     if not target or target == '' then
         mp.osd_message('No current item', 2)
         return
+    end
+    if tostring(target):find('googlevideo.com', 1, true) then
+        local page_url = _get_current_web_url()
+        if page_url and page_url ~= '' then
+            target = page_url
+        end
     end
 
     local store_hash = _extract_store_hash(target)
@@ -7023,6 +7030,7 @@ function M.show_menu()
     _lua_log('[MENU] M.show_menu called')
     M._reset_uosc_input_state('main-menu')
     
+    pcall(M._apply_formats_sidecar, 'main-menu')
     local target = (_current_url_for_web_actions and _current_url_for_web_actions()) or _current_target()
     local selected_store = trim(tostring(_get_selected_store() or ''))
     if not M._store_name_is_visible_in_mpv(selected_store) then
@@ -7044,7 +7052,10 @@ function M.show_menu()
         { title = "Download", value = "script-message medios-download-current", hint = download_hint },
     }
 
-    if _is_ytdlp_url(target) then
+    local target_str = tostring(target or '')
+    local page_url = _get_current_web_url()
+    if _is_ytdlp_url(target_str) or _is_ytdlp_url(page_url or '')
+        or target_str:find('googlevideo.com', 1, true) then
         table.insert(items, { title = "Change Format", value = "script-message medios-change-format-current" })
     end
 
