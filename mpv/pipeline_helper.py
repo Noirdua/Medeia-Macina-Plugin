@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-16.4"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-16.6"
 
 import argparse
 import json
@@ -565,10 +565,32 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     page_url = str(payload.get("page_url") or "").strip()
     if page_url:
         _helper_send(["set_property", "user-data/medeia-current-web-url", page_url], "web-url")
+        _write_page_url_file(page_url)
     _helper_send(["set_property", "pause", "no"], "unpause")
     ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
     _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} ytdl=no title={title}")
     return ok
+
+
+def _write_page_url_file(page_url: str) -> None:
+    """Record the page URL of the current stream for Change Format.
+
+    Formats themselves are fetched by yt-dlp on demand (the resolve already
+    seeded the shared format cache), so only the page identity needs persisting.
+    """
+    page_url = str(page_url or "").strip()
+    if not page_url:
+        return
+    try:
+        path = _config_temp_dir() / "medeia-last-page-url.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"url": page_url, "ts": time.time()}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    except Exception as exc:
+        _append_helper_log(f"[ytdlp-resolve] page-url file failed: {type(exc).__name__}: {exc}")
 
 
 def _run_op(op: str, data: Any) -> Dict[str, Any]:
@@ -1217,32 +1239,6 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
             title = str(payload.get("title") or "").strip()
             _append_helper_log(f"[ytdlp-resolve] ok title={title}")
             loaded = _load_resolved_playback(payload)
-            formats_count = 0
-            try:
-                fmt_payload = _run_op("ytdlp-formats", {"url": url})
-                formats_table = (
-                    fmt_payload.get("table") if isinstance(fmt_payload, dict) else None
-                )
-                if isinstance(formats_table, dict):
-                    rows = formats_table.get("rows")
-                    formats_count = len(rows) if isinstance(rows, list) else 0
-                    sidecar = _config_temp_dir() / "medeia-last-formats.json"
-                    tmp = sidecar.with_suffix(".tmp")
-                    tmp.write_text(
-                        json.dumps(
-                            {"url": url, "table": formats_table, "ts": time.time()},
-                            ensure_ascii=False,
-                        ),
-                        encoding="utf-8",
-                    )
-                    os.replace(tmp, sidecar)
-                    _append_helper_log(
-                        f"[ytdlp-resolve] wrote formats sidecar rows={formats_count} path={sidecar}"
-                    )
-            except Exception as fmt_exc:
-                _append_helper_log(
-                    f"[ytdlp-resolve] formats sidecar failed: {type(fmt_exc).__name__}: {fmt_exc}"
-                )
             return {
                 "success": bool(loaded),
                 "stdout": "",
@@ -1253,7 +1249,6 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                     "title": title,
                     "loaded": bool(loaded),
                     "url": url,
-                    "formats_count": formats_count,
                 },
             }
         except Exception as exc:

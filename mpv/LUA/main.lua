@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-16.1'
+    local MEDEIA_LUA_VERSION = '2026-09-16.3'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -4343,22 +4343,16 @@ local function _get_current_web_url()
 end
 
 _current_url_for_web_actions = function()
-    local current = _get_current_web_url()
-    if current and current ~= '' and not _is_direct_media_url(current) then
-        return current
+    local page = M._current_page_url and M._current_page_url() or nil
+    if page and page ~= '' then
+        return page
     end
     local target = _current_target()
     local target_str = tostring(target or '')
-    -- Resolved media streams carry no page identity; borrow it from the sidecar.
-    if _is_direct_media_url(target_str) and M._sidecar_page_url then
-        local page = M._sidecar_page_url()
-        if page and page ~= '' then
-            return page
-        end
-    end
     if target_str ~= '' and not _is_direct_media_url(target_str) then
         return target_str
     end
+    local current = _get_current_web_url()
     if current and current ~= '' then
         return current
     end
@@ -4817,79 +4811,51 @@ function M._get_cached_formats_table(url)
     return nil
 end
 
-function M._load_formats_sidecar()
+-- Change Format is keyed on the page URL the user loaded (or the helper
+-- resolved). Formats are fetched from yt-dlp on demand; the resolve already
+-- seeded the shared format cache, so that lookup is a cache hit.
+function M._load_last_page_url()
     local temp = trim(tostring(mp.get_property('user-data/medeia-config-temp') or os.getenv('TEMP') or os.getenv('TMP') or ''))
     if temp == '' then
-        return nil, nil, nil
+        return nil
     end
-    local path = utils.join_path(temp, 'medeia-last-formats.json')
+    local path = utils.join_path(temp, 'medeia-last-page-url.json')
     local fh = io.open(path, 'r')
     if not fh then
-        return nil, nil, nil
+        return nil
     end
-    local raw = fh:read('*a')
+    local raw = trim(tostring(fh:read('*a') or ''))
     fh:close()
-    raw = trim(tostring(raw or ''))
     if raw == '' then
-        return nil, nil, nil
+        return nil
     end
     local ok, payload = pcall(utils.parse_json, raw)
     if not ok or type(payload) ~= 'table' then
-        return nil, nil, nil
-    end
-    local page_url = trim(tostring(payload.url or ''))
-    local tbl = payload.table
-    local ts = tonumber(payload.ts or 0) or 0
-    if page_url == '' or type(tbl) ~= 'table' or type(tbl.rows) ~= 'table' then
-        return nil, nil, nil
-    end
-    return page_url, tbl, ts
-end
-
-local SIDECAR_MAX_AGE_SECONDS = 300
-
-local function _sidecar_is_fresh(ts)
-    if not ts or ts <= 0 then
-        return false
-    end
-    local now = os.time and os.time() or nil
-    if not now then
-        return true
-    end
-    local age = now - ts
-    if age < 0 then
-        age = 0
-    end
-    return age <= SIDECAR_MAX_AGE_SECONDS
-end
-
-function M._sidecar_page_url()
-    local page_url, tbl, ts = M._load_formats_sidecar()
-    if not page_url or not tbl or not _sidecar_is_fresh(ts) then
         return nil
     end
-    return page_url
+    local url = trim(tostring(payload.url or ''))
+    if url == '' or not _is_http_url(url) or _is_direct_media_url(url) then
+        return nil
+    end
+    return url
 end
 
-function M._apply_formats_sidecar(reason)
-    local page_url, tbl, ts = M._load_formats_sidecar()
-    if not page_url or not tbl then
-        return false
-    end
-    local current = _get_current_web_url()
+function M._current_page_url()
+    -- Only ever return a page URL for URL playback, never for local files.
     local target_str = tostring(_current_target() or '')
-    local matches_current = current and current ~= '' and current == page_url
-    if not matches_current then
-        -- Without an explicit page URL match, only trust a fresh sidecar while a
-        -- resolved stream is playing (never a stale file for a local item).
-        if not (_is_direct_media_url(target_str) and _sidecar_is_fresh(ts)) then
-            return false
+    local current = _get_current_web_url()
+    if current and current ~= '' and not _is_direct_media_url(current) then
+        if _is_direct_media_url(target_str) or _is_ytdlp_url(target_str) or target_str == '' then
+            return current
         end
-        _set_current_web_url(page_url)
     end
-    M._cache_formats_for_url(page_url, tbl)
-    _lua_log('formats: applied sidecar rows=' .. tostring(#tbl.rows) .. ' url=' .. page_url .. ' reason=' .. tostring(reason or ''))
-    return true
+    if _is_direct_media_url(target_str) then
+        local recorded = M._load_last_page_url()
+        if recorded and recorded ~= '' then
+            return recorded
+        end
+    end
+    return nil
 end
 
 function M._format_bytes_compact(size_bytes)
@@ -5267,13 +5233,9 @@ function M._schedule_playback_format_cache_poll(url, generation, attempt)
 end
 
 function M.FileState:fetch_formats(cb)
-    pcall(M._apply_formats_sidecar, 'fetch-formats')
     local url = tostring(self.url or '')
     if _is_direct_media_url(url) then
-        local page = _get_current_web_url()
-        if not page or page == '' or _is_direct_media_url(page) then
-            page = M._sidecar_page_url()
-        end
+        local page = M._current_page_url()
         if page and page ~= '' then
             _lua_log('fetch-formats: remapped stream url to page url=' .. page)
             url = page
@@ -6055,17 +6017,13 @@ mp.register_script_message('medios-download-current', function()
 end)
 
 mp.register_script_message('medios-change-format-current', function()
-    pcall(M._apply_formats_sidecar, 'change-format')
-    local target = _current_url_for_web_actions() or _get_current_web_url() or _current_target()
+    local target = M._current_page_url() or _current_url_for_web_actions() or _current_target()
     if not target or target == '' then
         mp.osd_message('No current item', 2)
         return
     end
     if _is_direct_media_url(tostring(target)) then
-        local page_url = _get_current_web_url()
-        if not page_url or page_url == '' or _is_direct_media_url(page_url) then
-            page_url = M._sidecar_page_url()
-        end
+        local page_url = M._current_page_url()
         if page_url and page_url ~= '' then
             target = page_url
         else
@@ -6082,6 +6040,7 @@ mp.register_script_message('medios-change-format-current', function()
 
     local url = tostring(target)
     _set_current_web_url(url)
+    _lua_log('change-format: invoked target=' .. tostring(target) .. ' url=' .. url)
 
     -- Ensure file state is tracking the current URL.
     if type(M.file) == 'table' then
@@ -6105,6 +6064,7 @@ mp.register_script_message('medios-change-format-current', function()
         cached_tbl = select(1, M._cache_formats_from_raw_info(url))
     end
     if type(cached_tbl) == 'table' and type(cached_tbl.rows) == 'table' and #cached_tbl.rows > 0 then
+        _lua_log('change-format: opening from cache rows=' .. tostring(#cached_tbl.rows))
         _pending_format_change = { url = url, token = 'cached', formats_table = cached_tbl }
         M._open_format_picker_for_table(url, cached_tbl)
         return
@@ -6176,7 +6136,6 @@ end)
 
 -- Prefetch formats for yt-dlp-supported URLs on load so Change Format is instant.
 mp.register_event('file-loaded', function()
-    pcall(M._apply_formats_sidecar, 'file-loaded')
     M._sync_current_web_url_from_playback()
     M._attempt_start_lyric_helper_async('file-loaded')
     M._schedule_web_subtitle_activation('file-loaded')
@@ -7018,7 +6977,6 @@ mp.register_script_message('medios-load-url-event', function(json)
             _log_all('INFO', 'Load URL via ytdlp plugin')
             mp.osd_message('URL loaded', 2)
             _set_current_web_url(url)
-            pcall(M._apply_formats_sidecar, 'resolve-callback')
             mp.add_timeout(0.5, function()
                 M._prefetch_formats_for_url(url)
                 M._schedule_uosc_cursor_resync('file-loaded-web')
@@ -7123,7 +7081,6 @@ function M.show_menu()
     _lua_log('[MENU] M.show_menu called')
     M._reset_uosc_input_state('main-menu')
     
-    pcall(M._apply_formats_sidecar, 'main-menu')
     local target = (_current_url_for_web_actions and _current_url_for_web_actions()) or _current_target()
     local selected_store = trim(tostring(_get_selected_store() or ''))
     if not M._store_name_is_visible_in_mpv(selected_store) then
@@ -7146,9 +7103,9 @@ function M.show_menu()
     }
 
     local target_str = tostring(target or '')
-    local page_url = _get_current_web_url()
+    local page_url = M._current_page_url()
     if _is_ytdlp_url(target_str) or _is_ytdlp_url(page_url or '')
-        or target_str:find('googlevideo.com', 1, true) then
+        or _is_direct_media_url(target_str) then
         table.insert(items, { title = "Change Format", value = "script-message medios-change-format-current" })
     end
 
