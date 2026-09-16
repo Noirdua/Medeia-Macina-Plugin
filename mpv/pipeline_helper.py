@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-16.1"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-16.2"
 
 import argparse
 import json
@@ -1276,6 +1276,53 @@ def _append_helper_log(text: str) -> None:
             pass
 
 
+def restore_windows_cursor(reason: str = "") -> None:
+    """Undo mpv's Windows cursor-hide counter after a VO/IPC crash.
+
+    mpv hides the OS cursor via ShowCursor(FALSE). If the process dies or the
+    VO reinits mid-hide, Windows can leave the pointer invisible over every
+    app. Drive the counter back to visible and restore IDC_ARROW.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        class POINT(ctypes.Structure):
+            _fields_ = (("x", wintypes.LONG), ("y", wintypes.LONG))
+
+        class CURSORINFO(ctypes.Structure):
+            _fields_ = (
+                ("cbSize", wintypes.DWORD),
+                ("flags", wintypes.DWORD),
+                ("hCursor", wintypes.HANDLE),
+                ("ptScreenPos", POINT),
+            )
+
+        info = CURSORINFO()
+        info.cbSize = ctypes.sizeof(CURSORINFO)
+        hidden = True
+        if user32.GetCursorInfo(ctypes.byref(info)):
+            hidden = not bool(info.flags & 0x1)
+        visible_count = 0
+        for _ in range(64):
+            visible_count = int(user32.ShowCursor(True))
+            if visible_count >= 0:
+                break
+        arrow = user32.LoadCursorW(None, 32512)  # IDC_ARROW
+        if arrow:
+            user32.SetCursor(arrow)
+        if reason:
+            _append_helper_log(
+                f"[helper] restored Windows cursor reason={reason} was_hidden={hidden} count={visible_count}"
+            )
+    except Exception:
+        return
+
+
 def _helper_log_path() -> str:
     try:
         log_dir = _repo_root() / "Log"
@@ -1701,6 +1748,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 return
             shutdown_reason = message
         _append_helper_log(f"[helper] shutdown requested: {message}")
+        restore_windows_cursor(f"shutdown:{message}")
         stop_event.set()
 
     def _mark_ipc_alive(source: str = "") -> None:
@@ -1720,6 +1768,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             _append_helper_log(
                 f"[helper] ipc unavailable via {source}; waiting {ipc_loss_grace_seconds:.1f}s for reconnect"
             )
+            restore_windows_cursor(f"ipc-lost:{source}")
             return
         if (now - ipc_lost_since) >= ipc_loss_grace_seconds:
             if platform.system() == "Windows":
@@ -2303,6 +2352,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                     last_mpv_count = 1
                     last_mpv_ts = now
                     _append_helper_log(line)
+                    lowered = text.lower()
+                    if (
+                        "failed creating fbo texture" in lowered
+                        or "failed dispatching scaler" in lowered
+                        or "ffmpeg tls" in lowered
+                    ):
+                        restore_windows_cursor(f"mpv-error:{prefix}")
+                    if "failed creating fbo texture" in lowered:
+                        _send_helper_command(
+                            ["script-message", "medeia-vo-compat"],
+                            "vo-compat-fbo",
+                        )
                 except Exception:
                     pass
                 continue
@@ -2325,6 +2386,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _append_helper_log(f"[helper] exiting reason={shutdown_reason}")
             except Exception:
                 pass
+        restore_windows_cursor("helper-exit")
         if command_client is not None:
             try:
                 command_client.disconnect()

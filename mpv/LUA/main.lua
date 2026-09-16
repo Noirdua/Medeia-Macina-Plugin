@@ -391,20 +391,20 @@ M._disable_input_section = function(name, reason)
     end
 end
 
--- mpv.conf already sets cursor-autohide=1000; re-setting it to the same value
--- on every menu/file event churns the Windows cursor show/hide state and is
--- what caused the frozen/invisible OS cursor icon. Only touch it if changed.
--- cursor-autohide-fs-only keeps hiding to fullscreen so the windowed/background
--- (always-on-top, transparent) window can never swallow the OS cursor.
+-- Never auto-hide the OS cursor. Re-asserting cursor-autohide=1000 on every
+-- menu/file event churned Windows' ShowCursor counter and left the pointer
+-- invisible after VO/IPC hiccups. uosc still fades its own UI.
 function M._ensure_cursor_autohide_default()
-    local ok, current = pcall(mp.get_property_number, 'cursor-autohide')
-    if not (ok and current == 1000) then
-        pcall(mp.set_property, 'cursor-autohide', '1000')
-    end
-    local ok_fs, fs_only = pcall(mp.get_property_bool, 'cursor-autohide-fs-only')
-    if not (ok_fs and fs_only == true) then
-        pcall(mp.set_property, 'cursor-autohide-fs-only', 'yes')
-    end
+    pcall(mp.set_property, 'cursor-autohide', 'no')
+    pcall(mp.set_property, 'cursor-autohide-fs-only', 'yes')
+end
+
+function M._force_os_cursor_visible(reason)
+    M._ensure_cursor_autohide_default()
+    -- Nudge mpv's mouse path so Windows reapplies IDC_ARROW if the hide
+    -- counter was left stuck after a VO reinit or IPC drop.
+    pcall(mp.commandv, 'script-message-to', 'uosc', 'sync-cursor')
+    _lua_log('cursor: force visible reason=' .. tostring(reason or 'unknown'))
 end
 
 function M._sync_uosc_cursor(reason)
@@ -1152,6 +1152,7 @@ do
         _vo_mode = normalized
         _lua_log('vo-mode: applied mode=' .. normalized .. ' vo=' .. entry.vo
             .. ' reason=' .. tostring(mode_opts.reason or 'unknown'))
+        pcall(M._force_os_cursor_visible, 'vo-mode:' .. normalized)
         if mode_opts.silent ~= true then
             mp.osd_message('Video output: ' .. entry.label, 2)
         end
@@ -1171,6 +1172,13 @@ do
         if M._apply_vo_mode(next_mode, { reason = 'toggle' }) then
             M._save_vo_mode(next_mode)
         end
+    end
+
+    function M._apply_compat_vo_mode(reason)
+        if M._apply_vo_mode('compat', { reason = reason or 'fbo-fallback', silent = false }) then
+            M._save_vo_mode('compat')
+        end
+        pcall(M._force_os_cursor_visible, reason or 'vo-compat')
     end
 
     -- Apply a persisted mode, else an explicit vo_mode from medeia.conf.
@@ -2579,7 +2587,7 @@ local function _restore_q_default()
 end
 
 local function _enable_image_section()
-    pcall(mp.commandv, 'enable-section', 'image', 'allow-hide-cursor')
+    pcall(mp.commandv, 'enable-section', 'image')
 end
 
 local function _disable_image_section()
@@ -3722,6 +3730,7 @@ end
 
 mp.register_event('file-loaded', function()
     _update_image_mode()
+    pcall(M._force_os_cursor_visible, 'file-loaded')
     if not _get_current_item_is_image() then
         M._schedule_uosc_cursor_resync('file-loaded')
     end
@@ -3729,6 +3738,7 @@ end)
 
 mp.register_event('shutdown', function()
     _restore_q_default()
+    pcall(M._force_os_cursor_visible, 'shutdown')
 end)
 
 _update_image_mode()
@@ -6801,6 +6811,7 @@ mp.register_script_message('medios-load-url-event', function(json)
     -- Close the URL prompt immediately once the user submits. Playback may still
     -- take time to resolve, but the modal should not stay stuck on screen.
     close_menu()
+    pcall(M._force_os_cursor_visible, 'load-url-submit')
 
     -- YouTube and other yt-dlp sites: resolve through the ytdlp plugin so
     -- impersonate/cookies match file -download. mpv's ytdl-hook 403s googlevideo.
@@ -7183,6 +7194,9 @@ mp.add_key_binding("alt+v", "medeia-vo-toggle", function()
 end)
 mp.register_script_message('medeia-vo-cycle', function()
     M._cycle_vo_mode()
+end)
+mp.register_script_message('medeia-vo-compat', function()
+    M._apply_compat_vo_mode('script-message')
 end)
 
 -- Script message handler for input.conf routing (right-click via input.conf)
