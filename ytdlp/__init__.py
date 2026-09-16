@@ -830,6 +830,22 @@ class ytdlp(TablePluginMixin, Plugin):
                     if not isinstance(info, dict):
                         holder[1] = "no extract info"
                         return
+                    formats = info.get("formats")
+                    if isinstance(formats, list) and formats:
+                        # Seed the shared format cache so the Change-Format probe
+                        # reuses this extraction instead of running yt-dlp again.
+                        try:
+                            ytdlp_tooling.cache_formats(
+                                url_str,
+                                formats,
+                                no_playlist=True,
+                                playlist_items=None,
+                                cookiefile=cookiefile,
+                                ydl=ydl,
+                                info=info,
+                            )
+                        except Exception:
+                            pass
                     video_url = str(info.get("url") or "").strip()
                     audio_url = ""
                     requested = info.get("requested_formats")

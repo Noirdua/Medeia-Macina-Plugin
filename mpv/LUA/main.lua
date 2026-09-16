@@ -394,12 +394,17 @@ end
 -- mpv.conf already sets cursor-autohide=1000; re-setting it to the same value
 -- on every menu/file event churns the Windows cursor show/hide state and is
 -- what caused the frozen/invisible OS cursor icon. Only touch it if changed.
+-- cursor-autohide-fs-only keeps hiding to fullscreen so the windowed/background
+-- (always-on-top, transparent) window can never swallow the OS cursor.
 function M._ensure_cursor_autohide_default()
     local ok, current = pcall(mp.get_property_number, 'cursor-autohide')
-    if ok and current == 1000 then
-        return
+    if not (ok and current == 1000) then
+        pcall(mp.set_property, 'cursor-autohide', '1000')
     end
-    pcall(mp.set_property, 'cursor-autohide', '1000')
+    local ok_fs, fs_only = pcall(mp.get_property_bool, 'cursor-autohide-fs-only')
+    if not (ok_fs and fs_only == true) then
+        pcall(mp.set_property, 'cursor-autohide-fs-only', 'yes')
+    end
 end
 
 function M._sync_uosc_cursor(reason)
@@ -577,7 +582,10 @@ lyric_set_visible(true)
 -- Configuration (global so _lua_log can see python_path early)
 opts = {
     python_path = "python",
-    cli_path = nil -- Will be auto-detected if nil
+    cli_path = nil, -- Will be auto-detected if nil
+    -- Video output fallback: "auto" (use mpv.conf), "quality" (gpu-next) or
+    -- "compat" (gpu). Toggle at runtime with Alt+V or script-message medeia-vo-cycle.
+    vo_mode = "auto"
 }
 
 -- Read script options from script-opts/medeia.conf when available
@@ -1064,6 +1072,119 @@ function M._get_store_cache_path()
         return nil
     end
     return utils.join_path(dir, 'medeia-store-cache.json')
+end
+
+-- Video output mode toggle -------------------------------------------------
+-- gpu-next (libplacebo) gives better quality/HDR but can hit FBO/scaler
+-- failures on some Windows GPUs. "compat" falls back to the older gpu VO.
+-- Scoped in a block so these locals don't count against main.lua's local limit.
+do
+    local VO_MODES = {
+        quality = { vo = 'gpu-next,gpu,direct3d', label = 'Quality (gpu-next)' },
+        compat = { vo = 'gpu', label = 'Compat (gpu)' },
+    }
+    local VO_MODE_ORDER = { 'quality', 'compat' }
+    local _vo_mode = nil
+
+    local function _normalize_vo_mode(value)
+        local mode = trim(tostring(value or '')):lower()
+        if VO_MODES[mode] then
+            return mode
+        end
+        return nil
+    end
+
+    function M._get_vo_state_path()
+        local dir = _get_script_opts_dir()
+        if not dir then
+            return nil
+        end
+        return utils.join_path(dir, 'medeia-vo-mode.json')
+    end
+
+    function M._load_saved_vo_mode()
+        local path = M._get_vo_state_path()
+        if not path then
+            return nil
+        end
+        local fh = io.open(path, 'r')
+        if not fh then
+            return nil
+        end
+        local raw = trim(tostring(fh:read('*a') or ''))
+        fh:close()
+        if raw == '' then
+            return nil
+        end
+        local ok, payload = pcall(utils.parse_json, raw)
+        if ok and type(payload) == 'table' then
+            return _normalize_vo_mode(payload.mode)
+        end
+        return _normalize_vo_mode(raw)
+    end
+
+    function M._save_vo_mode(mode)
+        local normalized = _normalize_vo_mode(mode)
+        local path = M._get_vo_state_path()
+        if not normalized or not path then
+            return false
+        end
+        local fh = io.open(path, 'w')
+        if not fh then
+            return false
+        end
+        fh:write(utils.format_json({ mode = normalized }))
+        fh:close()
+        return true
+    end
+
+    function M._apply_vo_mode(mode, mode_opts)
+        mode_opts = mode_opts or {}
+        local normalized = _normalize_vo_mode(mode)
+        if not normalized then
+            return false
+        end
+        local entry = VO_MODES[normalized]
+        if not pcall(mp.set_property, 'vo', entry.vo) then
+            _lua_log('vo-mode: failed to set vo=' .. entry.vo)
+            return false
+        end
+        _vo_mode = normalized
+        _lua_log('vo-mode: applied mode=' .. normalized .. ' vo=' .. entry.vo
+            .. ' reason=' .. tostring(mode_opts.reason or 'unknown'))
+        if mode_opts.silent ~= true then
+            mp.osd_message('Video output: ' .. entry.label, 2)
+        end
+        return true
+    end
+
+    function M._cycle_vo_mode()
+        local current = _vo_mode or 'quality'
+        local index = 1
+        for i, name in ipairs(VO_MODE_ORDER) do
+            if name == current then
+                index = i
+                break
+            end
+        end
+        local next_mode = VO_MODE_ORDER[(index % #VO_MODE_ORDER) + 1]
+        if M._apply_vo_mode(next_mode, { reason = 'toggle' }) then
+            M._save_vo_mode(next_mode)
+        end
+    end
+
+    -- Apply a persisted mode, else an explicit vo_mode from medeia.conf.
+    -- "auto" leaves mpv.conf untouched.
+    function M._apply_startup_vo_mode()
+        local saved = nil
+        pcall(function() saved = M._load_saved_vo_mode() end)
+        local desired = saved or _normalize_vo_mode(opts.vo_mode)
+        if desired then
+            pcall(function()
+                M._apply_vo_mode(desired, { reason = 'startup', silent = true })
+            end)
+        end
+    end
 end
 
 function M._load_store_names_from_disk()
@@ -7112,6 +7233,15 @@ mp.add_key_binding("ctrl+del", "medios-delete", M.delete_current_file)
 mp.add_key_binding("l", "medeia-lyric-toggle", lyric_toggle)
 mp.add_key_binding("L", "medeia-lyric-toggle-shift", lyric_toggle)
 
+-- Video output fallback toggle (Alt+V): cycles gpu-next <-> gpu.
+mp.add_key_binding("alt+v", "medeia-vo-toggle", function()
+    _lua_log('[KEY] alt+v pressed -> cycle vo mode')
+    M._cycle_vo_mode()
+end)
+mp.register_script_message('medeia-vo-cycle', function()
+    M._cycle_vo_mode()
+end)
+
 -- Script message handler for input.conf routing (right-click via input.conf)
 mp.register_script_message('medios-show-menu', function()
     _lua_log('[input.conf] medios-show-menu called')
@@ -7123,6 +7253,10 @@ end)
 mp.add_timeout(0, function()
     pcall(ensure_mpv_ipc_server)
     pcall(_lua_log, 'medeia-lua loaded version=' .. MEDEIA_LUA_VERSION)
+
+    -- Apply a persisted video-output mode (or an explicit vo_mode in
+    -- medeia.conf). "auto" leaves mpv.conf untouched.
+    pcall(M._apply_startup_vo_mode)
     local ok_subtitle_defaults, subtitle_defaults_err = pcall(M._prime_web_subtitle_global_defaults, 'startup')
     if not ok_subtitle_defaults then
         _lua_log('web-subtitles: startup defaults failed err=' .. tostring(subtitle_defaults_err))

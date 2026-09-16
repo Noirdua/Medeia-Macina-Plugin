@@ -10,6 +10,7 @@ import shutil
 import string
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -481,6 +482,22 @@ def is_url_supported_by_ytdlp(url: str) -> bool:
 
 
 _FORMATS_CACHE: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_FORMATS_CACHE_TTL_SECONDS = 300.0
+# Shared across processes (the mpv helper and the format_probe.py subprocess) so
+# a playback resolve can seed the Change-Format probe and avoid a second yt-dlp
+# run for the same URL.
+_FORMATS_DISK_CACHE_DIR = Path(tempfile.gettempdir()) / "medeia-ytdlp-formats-cache"
+
+
+def _formats_cache_key(
+    url: str,
+    *,
+    no_playlist: bool,
+    playlist_items: Optional[str],
+    cookiefile: Optional[str],
+) -> str:
+    payload = f"{url}|{no_playlist}|{playlist_items}|{cookiefile}"
+    return hashlib.md5(payload.encode()).hexdigest()
 
 
 def _audio_variant_base_selector(fmt: Any) -> Optional[str]:
@@ -501,6 +518,132 @@ def _audio_variant_base_selector(fmt: Any) -> Optional[str]:
         return None
     return match.group("base")
 
+
+def _annotate_formats(
+    formats: Sequence[Any],
+    ydl: Any,
+    info: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Flag audio-variant formats whose selector no longer matches."""
+    selector_cache: Dict[str, bool] = {}
+
+    def _selector_has_matches(selector: str) -> bool:
+        cached = selector_cache.get(selector)
+        if cached is not None:
+            return cached
+        try:
+            matches = ydl.build_format_selector(selector)(info)
+            cached = any(True for _ in matches)
+        except Exception:
+            cached = False
+        selector_cache[selector] = cached
+        return cached
+
+    out: List[Dict[str, Any]] = []
+    for fmt in formats:
+        if isinstance(fmt, dict):
+            base_selector = _audio_variant_base_selector(fmt)
+            if base_selector and not _selector_has_matches(base_selector):
+                fmt["_medios_selector_valid"] = False
+            out.append(fmt)
+    return out
+
+
+def _formats_disk_path(cache_key: str) -> Path:
+    return _FORMATS_DISK_CACHE_DIR / f"{cache_key}.json"
+
+
+def _read_formats_disk_cache(cache_key: str) -> Optional[List[Dict[str, Any]]]:
+    try:
+        with open(_formats_disk_path(cache_key), "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    ts = payload.get("ts")
+    formats = payload.get("formats")
+    if not isinstance(ts, (int, float)):
+        return None
+    if not isinstance(formats, list) or not formats:
+        return None
+    if time.time() - float(ts) > _FORMATS_CACHE_TTL_SECONDS:
+        return None
+    return formats
+
+
+def _prune_formats_disk_cache() -> None:
+    try:
+        cutoff = time.time() - 86400.0
+        for entry in _FORMATS_DISK_CACHE_DIR.glob("*.json"):
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    entry.unlink()
+            except Exception:
+                continue
+    except Exception:
+        return
+
+
+def _write_formats_disk_cache(cache_key: str, formats: List[Dict[str, Any]]) -> None:
+    if not formats:
+        return
+    try:
+        _FORMATS_DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return
+    target = _formats_disk_path(cache_key)
+    tmp = target.with_suffix(".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"ts": time.time(), "formats": formats}, fh, ensure_ascii=False)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        return
+    _prune_formats_disk_cache()
+
+
+def cache_formats(
+    url: str,
+    formats: Sequence[Any],
+    *,
+    no_playlist: bool = False,
+    playlist_items: Optional[str] = None,
+    cookiefile: Optional[str] = None,
+    ydl: Any = None,
+    info: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Seed the shared format cache from an already-extracted yt-dlp result.
+
+    Called from a playback resolve so the Change-Format picker can reuse the
+    same format list instead of running a second yt-dlp probe.
+    """
+    url_str = str(url or "").strip()
+    if not url_str or not isinstance(formats, list):
+        return
+    annotated: List[Dict[str, Any]] = [fmt for fmt in formats if isinstance(fmt, dict)]
+    if not annotated:
+        return
+    if ydl is not None and isinstance(info, dict):
+        try:
+            annotated = _annotate_formats(annotated, ydl, info)
+        except Exception:
+            pass
+    cache_key = _formats_cache_key(
+        url_str,
+        no_playlist=no_playlist,
+        playlist_items=playlist_items,
+        cookiefile=cookiefile,
+    )
+    _FORMATS_CACHE[cache_key] = (time.monotonic(), annotated)
+    _write_formats_disk_cache(cache_key, annotated)
+
+
 def list_formats(
     url: str,
     *,
@@ -517,13 +660,22 @@ def list_formats(
     if not is_url_supported_by_ytdlp(url):
         return None
 
-    # Cache format probes to avoid redundant network hits
-    cache_key = hashlib.md5(f"{url}|{no_playlist}|{playlist_items}|{cookiefile}".encode()).hexdigest()
+    cache_key = _formats_cache_key(
+        url,
+        no_playlist=no_playlist,
+        playlist_items=playlist_items,
+        cookiefile=cookiefile,
+    )
     now = time.monotonic()
-    if cache_key in _FORMATS_CACHE:
-        ts, result = _FORMATS_CACHE[cache_key]
-        if now - ts < 300: # 5 minute cache for formats
-            return result
+
+    cached = _FORMATS_CACHE.get(cache_key)
+    if cached is not None and (now - cached[0]) < _FORMATS_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    disk_cached = _read_formats_disk_cache(cache_key)
+    if disk_cached is not None:
+        _FORMATS_CACHE[cache_key] = (now, disk_cached)
+        return disk_cached
 
     result_container: List[Optional[Any]] = [None, None]  # [result, error]
 
@@ -569,28 +721,7 @@ def list_formats(
                 result_container[0] = None
                 return
 
-            selector_cache: Dict[str, bool] = {}
-
-            def _selector_has_matches(selector: str) -> bool:
-                cached = selector_cache.get(selector)
-                if cached is not None:
-                    return cached
-                try:
-                    matches = ydl.build_format_selector(selector)(info)
-                    cached = any(True for _ in matches)
-                except Exception:
-                    cached = False
-                selector_cache[selector] = cached
-                return cached
-
-            out: List[Dict[str, Any]] = []
-            for fmt in formats:
-                if isinstance(fmt, dict):
-                    base_selector = _audio_variant_base_selector(fmt)
-                    if base_selector and not _selector_has_matches(base_selector):
-                        fmt["_medios_selector_valid"] = False
-                    out.append(fmt)
-            result_container[0] = out
+            result_container[0] = _annotate_formats(formats, ydl, info)
         except Exception as exc:
             debug(f"yt-dlp format probe failed for {url}: {exc}")
             result_container[1] = exc
@@ -609,6 +740,7 @@ def list_formats(
 
     if result_container[0] is not None:
         _FORMATS_CACHE[cache_key] = (now, cast(List[Dict[str, Any]], result_container[0]))
+        _write_formats_disk_cache(cache_key, cast(List[Dict[str, Any]], result_container[0]))
 
     return cast(Optional[List[Dict[str, Any]]], result_container[0])
 
