@@ -5957,6 +5957,30 @@ mp.register_script_message('medios-change-format-current', function()
     _pending_format_change = { url = url, token = token }
     M._open_loading_formats_menu('Change format')
 
+    mp.add_timeout(12, function()
+        if type(_pending_format_change) ~= 'table' or _pending_format_change.token ~= token then
+            return
+        end
+        if type(_pending_format_change.formats_table) == 'table' then
+            return
+        end
+        local late = M._get_cached_formats_table(url)
+        if type(late) == 'table' and type(late.rows) == 'table' and #late.rows > 0 then
+            _pending_format_change.formats_table = late
+            M._open_format_picker_for_table(url, late)
+            return
+        end
+        _formats_inflight[url] = nil
+        mp.osd_message('Timed out loading formats', 5)
+        _uosc_open_list_picker(DOWNLOAD_FORMAT_MENU_TYPE, 'Change format', {
+            {
+                title = 'Timed out loading formats',
+                hint = 'Try Change Format again',
+                value = { 'script-message-to', mp.get_script_name(), 'medios-change-format-current', '{}' },
+            },
+        })
+    end)
+
     -- Non-blocking: ask the per-file state to fetch formats in the background.
     if type(M.file) == 'table' and M.file.fetch_formats then
         _lua_log('change-format: formats not cached yet; fetching in background')
@@ -6834,6 +6858,14 @@ mp.register_script_message('medios-load-url-event', function(json)
             _lua_log('[LOAD-URL] ytdlp plugin loaded via helper loaded=' .. tostring(loaded))
             _log_all('INFO', 'Load URL via ytdlp plugin')
             mp.osd_message('URL loaded', 2)
+            local formats_table = type(data) == 'table' and data.formats_table or (type(resp) == 'table' and resp.table)
+            if type(formats_table) == 'table' and type(formats_table.rows) == 'table' then
+                M._cache_formats_for_url(url, formats_table)
+                if type(M.file) == 'table' and M.file.set_formats then
+                    M.file:set_formats(url, formats_table)
+                end
+                _lua_log('[LOAD-URL] cached ' .. tostring(#formats_table.rows) .. ' formats from resolve')
+            end
             mp.add_timeout(0.5, function()
                 M._prefetch_formats_for_url(url)
                 M._schedule_uosc_cursor_resync('file-loaded-web')

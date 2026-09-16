@@ -61,14 +61,18 @@ def _windows_pipe_available(path: str) -> bool:
 
 
 def _windows_pipe_bytes_available(pipe: BinaryIO) -> Optional[int]:
-    """Return the number of bytes ready to read from a Windows named pipe."""
+    """Return bytes ready to read, 0 if idle, or None if the pipe is dead.
+
+    PeekNamedPipe can fail transiently; treating that as a disconnect made the
+    helper drop IPC and left Change Format stuck on "Loading formats…".
+    """
     if platform.system() != "Windows":
         return None
     try:
         import msvcrt
 
         handle = msvcrt.get_osfhandle(pipe.fileno())
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         PeekNamedPipe = kernel32.PeekNamedPipe
         PeekNamedPipe.argtypes = [
             ctypes.c_void_p,
@@ -90,10 +94,14 @@ def _windows_pipe_bytes_available(pipe: BinaryIO) -> Optional[int]:
             None,
         )
         if not ok:
-            return None
+            err = int(ctypes.get_last_error() or 0)
+            # 6 INVALID_HANDLE, 109 BROKEN_PIPE, 233 PIPE_NOT_CONNECTED
+            if err in {6, 109, 233}:
+                return None
+            return 0
         return int(total_available.value)
     except Exception:
-        return None
+        return 0
 
 
 def _windows_pythonw_exe(python_exe: Optional[str]) -> Optional[str]:
