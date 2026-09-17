@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-16.3'
+    local MEDEIA_LUA_VERSION = '2026-09-16.4'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -4815,11 +4815,11 @@ end
 -- resolved). Formats are fetched from yt-dlp on demand; the resolve already
 -- seeded the shared format cache, so that lookup is a cache hit.
 function M._load_last_page_url()
-    local temp = trim(tostring(mp.get_property('user-data/medeia-config-temp') or os.getenv('TEMP') or os.getenv('TMP') or ''))
-    if temp == '' then
+    local dir = _get_script_opts_dir()
+    if not dir then
         return nil
     end
-    local path = utils.join_path(temp, 'medeia-last-page-url.json')
+    local path = utils.join_path(dir, 'medeia-last-page-url.json')
     local fh = io.open(path, 'r')
     if not fh then
         return nil

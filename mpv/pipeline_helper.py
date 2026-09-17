@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-16.6"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-16.7"
 
 import argparse
 import json
@@ -572,23 +572,32 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     return ok
 
 
+def _script_opts_dir() -> Path:
+    """The mpv plugin's script-opts dir (same one Lua reads state from)."""
+    return Path(__file__).resolve().parent / "portable_config" / "script-opts"
+
+
 def _write_page_url_file(page_url: str) -> None:
     """Record the page URL of the current stream for Change Format.
 
-    Formats themselves are fetched by yt-dlp on demand (the resolve already
-    seeded the shared format cache), so only the page identity needs persisting.
+    Written next to the mpv script-opts (the location Lua reliably reads, unlike
+    the OS temp dir). Formats themselves are fetched by yt-dlp on demand; the
+    resolve already seeded the shared format cache, so that lookup is a cache hit.
     """
     page_url = str(page_url or "").strip()
     if not page_url:
         return
     try:
-        path = _config_temp_dir() / "medeia-last-page-url.json"
+        dirpath = _script_opts_dir()
+        dirpath.mkdir(parents=True, exist_ok=True)
+        path = dirpath / "medeia-last-page-url.json"
         tmp = path.with_suffix(".tmp")
         tmp.write_text(
             json.dumps({"url": page_url, "ts": time.time()}, ensure_ascii=False),
             encoding="utf-8",
         )
         os.replace(tmp, path)
+        _append_helper_log(f"[ytdlp-resolve] wrote page-url file url={page_url}")
     except Exception as exc:
         _append_helper_log(f"[ytdlp-resolve] page-url file failed: {type(exc).__name__}: {exc}")
 
