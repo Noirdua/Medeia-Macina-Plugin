@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-16.7"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-18.1"
 
 import argparse
 import json
@@ -547,6 +547,51 @@ def _helper_send(command: Any, label: str = "") -> bool:
     return bool(fn(command, label))
 
 
+def _is_googlevideo_url(url: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+
+        return (urlparse(str(url or "")).hostname or "").lower().endswith(".googlevideo.com")
+    except Exception:
+        return False
+
+
+def _wait_for_googlevideo_url(
+    url: str,
+    headers: Dict[str, Any],
+    timeout: float = 8.0,
+) -> bool:
+    """Wait until a freshly resolved googlevideo URL is actually playable.
+
+    googlevideo returns 403 for a second or two after YouTube issues the URL;
+    ffmpeg treats that as fatal, so loading immediately makes playback fail.
+    A ranged GET is retried until the URL responds, without consuming it.
+    """
+    import urllib.error
+    import urllib.request
+
+    attempt_headers = {
+        str(key): str(value)
+        for key, value in (headers or {}).items()
+        if key and str(value).strip()
+    }
+    attempt_headers.setdefault("Range", "bytes=0-0")
+    deadline = time.time() + max(0.0, timeout)
+    while True:
+        try:
+            request = urllib.request.Request(url, headers=attempt_headers)
+            with urllib.request.urlopen(request, timeout=5) as response:
+                response.read(8)
+            return True
+        except urllib.error.HTTPError as exc:
+            if exc.code != 403 or time.time() >= deadline:
+                return False
+        except Exception:
+            if time.time() >= deadline:
+                return False
+        time.sleep(0.3)
+
+
 def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     play_url = str(payload.get("url") or "").strip()
     if not play_url:
@@ -566,6 +611,15 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     if page_url:
         _helper_send(["set_property", "user-data/medeia-current-web-url", page_url], "web-url")
         _write_page_url_file(page_url)
+    if _is_googlevideo_url(play_url) or (audio_url and _is_googlevideo_url(audio_url)):
+        started = time.time()
+        ready = True
+        for candidate in (play_url, audio_url):
+            if candidate and _is_googlevideo_url(candidate):
+                ready = _wait_for_googlevideo_url(candidate, headers) and ready
+        _append_helper_log(
+            f"[ytdlp-resolve] url-ready ok={ready} waited={time.time() - started:.2f}s"
+        )
     _helper_send(["set_property", "pause", "no"], "unpause")
     ok = _helper_send(["loadfile", play_url, "replace", 0, opts], "ytdlp-loadfile")
     _append_helper_log(f"[ytdlp-resolve] loadfile ok={ok} ytdl=no title={title}")

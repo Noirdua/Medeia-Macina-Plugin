@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-16.4'
+    local MEDEIA_LUA_VERSION = '2026-09-18.1'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -1409,6 +1409,42 @@ function M._normalize_mpv_user_data_text(value)
     return trim(text)
 end
 
+function M._read_user_data_text(name)
+    local value = mp.get_property_native(name)
+    if type(value) == 'string' then
+        return value
+    end
+    if type(value) == 'number' or type(value) == 'boolean' then
+        return tostring(value)
+    end
+    value = mp.get_property(name)
+    if type(value) == 'string' then
+        local ok, decoded = pcall(utils.parse_json, value)
+        if ok and type(decoded) == 'string' then
+            return decoded
+        end
+        return value
+    end
+    return nil
+end
+
+function M._parse_json_loose(raw)
+    if type(raw) ~= 'string' or raw == '' then
+        return nil
+    end
+    local ok, value = pcall(utils.parse_json, raw)
+    if not ok then
+        return nil
+    end
+    if type(value) == 'string' and value ~= '' then
+        local ok_decoded, decoded = pcall(utils.parse_json, value)
+        if ok_decoded then
+            return decoded
+        end
+    end
+    return value
+end
+
 local function _parse_helper_version(text)
     local y, m, d, rev = tostring(text or ''):match('^(%d%d%d%d)%-(%d%d)%-(%d%d)%.?(%d*)$')
     if not y then
@@ -1938,11 +1974,11 @@ local function _run_helper_request_async(req, timeout_seconds, cb)
                 return
             end
 
-            local resp_json = mp.get_property(PIPELINE_RESP_PROP)
-            if resp_json and resp_json ~= '' then
-                _last_ipc_last_resp_json = resp_json
-                local ok, resp = pcall(utils.parse_json, resp_json)
-                if ok and resp and resp.id == id then
+            local resp_raw = M._read_user_data_text(PIPELINE_RESP_PROP)
+            if resp_raw and resp_raw ~= '' then
+                _last_ipc_last_resp_json = resp_raw
+                local resp = M._parse_json_loose(resp_raw)
+                if type(resp) == 'table' and resp.id == id then
                     poll_timer:kill()
                     _lua_log('ipc-async: got response id=' .. tostring(id) .. ' success=' .. tostring(resp.success))
                     done(resp, nil)
@@ -3068,7 +3104,7 @@ local function _start_screenshot_store_save(store, out_path, tags)
 
     local is_named_store = _is_cached_store_name(store)
     local tag_list = _normalize_tag_list(tags)
-    local screenshot_url = trim(tostring((_current_url_for_web_actions and _current_url_for_web_actions()) or mp.get_property(CURRENT_WEB_URL_PROP) or ''))
+    local screenshot_url = trim(tostring((_current_url_for_web_actions and _current_url_for_web_actions()) or M._read_user_data_text(CURRENT_WEB_URL_PROP) or ''))
     if screenshot_url == '' or not screenshot_url:match('^https?://') then
         screenshot_url = ''
     end
@@ -4266,7 +4302,7 @@ local function _is_ytdlp_url(u)
     if low:find('alldebrid.com/f/', 1, true) then return false end
 
     -- Try to use the cached domain list from the pipeline helper
-    local domains_str = mp.get_property('user-data/medeia-ytdlp-domains-cached') or ''
+    local domains_str = M._read_user_data_text('user-data/medeia-ytdlp-domains-cached') or ''
     if domains_str ~= '' then
         if not _ytdlp_domains_cached then
             _ytdlp_domains_cached = {}
@@ -4335,7 +4371,7 @@ local function _set_current_web_url(url)
 end
 
 local function _get_current_web_url()
-    local current = trim(tostring(mp.get_property(CURRENT_WEB_URL_PROP) or ''))
+    local current = trim(tostring(M._read_user_data_text(CURRENT_WEB_URL_PROP) or ''))
     if current ~= '' and _is_http_url(current) then
         return current
     end
@@ -6390,10 +6426,10 @@ local function run_pipeline_via_ipc(pipeline_cmd, seeds, timeout_seconds)
 
     local deadline = mp.get_time() + (timeout_seconds or 5)
     while mp.get_time() < deadline do
-        local resp_json = mp.get_property(PIPELINE_RESP_PROP)
-        if resp_json and resp_json ~= '' then
-            local ok, resp = pcall(utils.parse_json, resp_json)
-            if ok and resp and resp.id == id then
+        local resp_raw = M._read_user_data_text(PIPELINE_RESP_PROP)
+        if resp_raw and resp_raw ~= '' then
+            local resp = M._parse_json_loose(resp_raw)
+            if type(resp) == 'table' and resp.id == id then
                 if resp.success then
                     return resp.stdout or ''
                 end
