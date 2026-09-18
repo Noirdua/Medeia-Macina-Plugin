@@ -314,6 +314,28 @@ def _cookiefile_str(ytdlp_tool: YtDlpTool) -> Optional[str]:
     return None
 
 
+def _is_youtube_url(url: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+
+        host = (urlparse(str(url or "")).hostname or "").lower()
+    except Exception:
+        return False
+    return host == "youtu.be" or host.endswith(".youtube.com") or host == "youtube.com"
+
+
+def _selector_height(format_selector: str) -> Optional[int]:
+    import re
+
+    match = re.search(r"height<=(\d+)", str(format_selector or ""))
+    if match:
+        return int(match.group(1))
+    match = re.search(r"height=(\d+)", str(format_selector or ""))
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _list_formats_cached(
     url: str,
     *,
@@ -798,6 +820,10 @@ class ytdlp(TablePluginMixin, Plugin):
         from . import tooling as ytdlp_tooling
 
         timeout_seconds = int(kwargs.get("timeout_seconds") or 30)
+        format_selector = str(
+            kwargs.get("format") or kwargs.get("format_selector") or ""
+        ).strip()
+        prefer_hls = bool(kwargs.get("prefer_hls"))
         ytdlp_tool = YtDlpTool(self.config)
         cookiefile = _cookiefile_str(ytdlp_tool)
         holder: List[Any] = [None, None]
@@ -816,7 +842,8 @@ class ytdlp(TablePluginMixin, Plugin):
                     "skip_download": True,
                     "noprogress": True,
                     "noplaylist": True,
-                    "format": "b/bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b",
+                    "format": format_selector
+                    or "b/bv*[vcodec^=avc1]+ba/bv*[vcodec^=vp09]+ba/b",
                     "socket_timeout": min(15, max(1, timeout_seconds)),
                     "retries": 2,
                     "user_agent": headers.get("User-Agent"),
@@ -824,6 +851,10 @@ class ytdlp(TablePluginMixin, Plugin):
                     "http_headers": headers,
                 }
                 ytdlp_tooling._apply_ytdlp_impersonate(ydl_opts)
+                if prefer_hls:
+                    ydl_opts["extractor_args"] = {
+                        "youtube": {"player_client": ["web_safari"]}
+                    }
                 if cookiefile:
                     ydl_opts["cookiefile"] = str(cookiefile)
                 else:
@@ -858,6 +889,10 @@ class ytdlp(TablePluginMixin, Plugin):
                         second = requested[1] if len(requested) > 1 and isinstance(requested[1], dict) else {}
                         video_url = str(first.get("url") or video_url).strip()
                         audio_url = str(second.get("url") or "").strip()
+                    video_only = bool(audio_url) or (
+                        str(info.get("vcodec") or "none") != "none"
+                        and str(info.get("acodec") or "none") == "none"
+                    )
                     http_headers = info.get("http_headers") if isinstance(info.get("http_headers"), dict) else headers
                     try:
                         from urllib.request import Request
@@ -867,19 +902,21 @@ class ytdlp(TablePluginMixin, Plugin):
                         cookie_hdr = req.get_header("Cookie") or ""
                     except Exception:
                         cookie_hdr = ""
-                if not video_url:
-                    holder[1] = "no stream url"
-                    return
-                merged = {str(k): str(v) for k, v in dict(http_headers or {}).items() if k and v}
-                if cookie_hdr:
-                    merged["Cookie"] = cookie_hdr
-                holder[0] = {
-                    "url": video_url,
-                    "page_url": url_str,
-                    "audio_url": audio_url,
-                    "title": str(info.get("title") or "").strip(),
-                    "headers": merged,
-                }
+                    if not video_url:
+                        holder[1] = "no stream url"
+                        return
+                    merged = {str(k): str(v) for k, v in dict(http_headers or {}).items() if k and v}
+                    if cookie_hdr:
+                        merged["Cookie"] = cookie_hdr
+                    holder[0] = {
+                        "url": video_url,
+                        "page_url": url_str,
+                        "audio_url": audio_url,
+                        "title": str(info.get("title") or "").strip(),
+                        "headers": merged,
+                        "video_only": video_only,
+                        "height": info.get("height"),
+                    }
             except Exception as exc:
                 holder[1] = f"{type(exc).__name__}: {exc}"
 
@@ -893,7 +930,27 @@ class ytdlp(TablePluginMixin, Plugin):
         if holder[1] or not isinstance(holder[0], dict):
             debug(f"[ytdlp] resolve_playback_url failed for {url_str}: {holder[1]}")
             return None
-        return holder[0]
+        payload = holder[0]
+        if (
+            not prefer_hls
+            and _is_youtube_url(url_str)
+            and payload.get("video_only")
+        ):
+            height = _selector_height(format_selector) or payload.get("height")
+            fallback_selector = f"best[height<={height}]/best" if height else "best"
+            debug(
+                "[ytdlp] video-only stream restricted by YouTube; retrying with HLS "
+                f"(height={height or 'any'})"
+            )
+            fallback = self.resolve_playback_url(
+                url_str,
+                timeout_seconds=timeout_seconds,
+                format=fallback_selector,
+                prefer_hls=True,
+            )
+            if isinstance(fallback, dict) and str(fallback.get("url") or "").strip():
+                return fallback
+        return payload
 
     def filter_picker_formats(
         self,

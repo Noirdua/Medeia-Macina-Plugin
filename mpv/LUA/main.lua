@@ -5929,6 +5929,37 @@ function M._apply_ytdl_format_and_reload(url, fmt, height)
     end
 
     M._close_uosc_menu_and_sync(DOWNLOAD_FORMAT_MENU_TYPE, 'change-format-reload')
+
+    if _is_ytdlp_url(url) then
+        ensure_mpv_ipc_server()
+        ensure_pipeline_helper_running()
+        if _is_pipeline_helper_ready() then
+            _lua_log('change-format: reloading via helper fmt=' .. tostring(playback_fmt))
+            _run_helper_request_async({ op = 'ytdlp-resolve', data = { url = url, format = playback_fmt } }, 45, function(resp, err)
+                local ok = type(resp) == 'table' and resp.success
+                local data = type(resp) == 'table' and resp.data or nil
+                local loaded = type(data) == 'table' and data.loaded
+                if err or not ok or not loaded then
+                    _lua_log('change-format: helper reload failed err=' .. tostring(err or (resp and resp.error)) .. '; falling back to ytdl-hook')
+                    mp.osd_message('Change format: helper failed, trying ytdl-hook', 3)
+                    mp.command_native({
+                        name = 'loadfile',
+                        url = url,
+                        flags = 'replace',
+                        options = load_options,
+                    })
+                else
+                    _lua_log('change-format: helper reload ok fmt=' .. tostring(playback_fmt))
+                    mp.osd_message('Format changed', 2)
+                end
+                if paused then
+                    mp.set_property_native('pause', true)
+                end
+            end)
+            return
+        end
+    end
+
     _lua_log('change-format: reloading current url with per-file options fmt=' .. tostring(playback_fmt))
     mp.command_native({
         name = 'loadfile',

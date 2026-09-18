@@ -1269,8 +1269,12 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
     if op_name in {"ytdlp-resolve", "ytdlp_resolve", "ytdl-resolve"}:
         try:
             url = ""
+            format_selector = ""
             if isinstance(data, dict):
                 url = str(data.get("url") or "").strip()
+                format_selector = str(
+                    data.get("format") or data.get("format_selector") or ""
+                ).strip()
             if not url:
                 return {
                     "success": False,
@@ -1290,7 +1294,10 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                     "error": "ytdlp plugin unavailable",
                     "table": None,
                 }
-            payload = resolve(url, timeout_seconds=30)
+            resolve_kwargs: Dict[str, Any] = {"timeout_seconds": 30}
+            if format_selector:
+                resolve_kwargs["format"] = format_selector
+            payload = resolve(url, **resolve_kwargs)
             if not isinstance(payload, dict) or not str(payload.get("url") or "").strip():
                 return {
                     "success": False,
@@ -1300,7 +1307,9 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                     "table": None,
                 }
             title = str(payload.get("title") or "").strip()
-            _append_helper_log(f"[ytdlp-resolve] ok title={title}")
+            _append_helper_log(
+                f"[ytdlp-resolve] ok title={title} format={format_selector or 'default'}"
+            )
             loaded = _load_resolved_playback(payload)
             return {
                 "success": bool(loaded),
