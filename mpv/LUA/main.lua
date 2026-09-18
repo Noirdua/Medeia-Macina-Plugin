@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-18.1'
+    local MEDEIA_LUA_VERSION = '2026-09-18.2'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -491,71 +491,6 @@ M._open_uosc_menu = function(menu_data, reason)
     return true
 end
 
-local function write_temp_log(prefix, text)
-    if not text or text == '' then
-        return nil
-    end
-
-    local dir = ''
-    -- Prefer repo-root Log/ for easier discovery.
-    -- NOTE: Avoid spawning cmd.exe/sh just to mkdir on Windows/Linux; console flashes are
-    -- highly undesirable. If the directory doesn't exist, we fall back to TEMP.
-    do
-        local function find_up(start_dir, relative_path, max_levels)
-            local d = start_dir
-            local levels = max_levels or 6
-            for _ = 0, levels do
-                if d and d ~= '' then
-                    local candidate = d .. '/' .. relative_path
-                    if utils.file_info(candidate) then
-                        return candidate
-                    end
-                end
-                local parent = d and d:match('(.*)[/\\]') or nil
-                if not parent or parent == d or parent == '' then
-                    break
-                end
-                d = parent
-            end
-            return nil
-        end
-
-        local base = mp.get_script_directory() or utils.getcwd() or ''
-        if base ~= '' then
-            local cli = find_up(base, 'CLI.py', 6)
-            if cli and cli ~= '' then
-                local parent = cli:match('(.*)[/\\]') or ''
-                if parent ~= '' then
-                    dir = utils.join_path(parent, 'Log')
-                end
-            end
-        end
-    end
-    if dir == '' then
-        dir = os.getenv('TEMP') or os.getenv('TMP') or utils.getcwd() or ''
-    end
-    if dir == '' then
-        return nil
-    end
-    local name = (prefix or 'medeia-mpv') .. '-' .. tostring(math.floor(mp.get_time() * 1000)) .. '.log'
-    local path = utils.join_path(dir, name)
-    local fh = io.open(path, 'w')
-    if not fh then
-        -- If Log/ wasn't created (or is not writable), fall back to TEMP.
-        local tmp = os.getenv('TEMP') or os.getenv('TMP') or ''
-        if tmp ~= '' and tmp ~= dir then
-            path = utils.join_path(tmp, name)
-            fh = io.open(path, 'w')
-        end
-        if not fh then
-            return nil
-        end
-    end
-    fh:write(text)
-    fh:close()
-    return path
-end
-
 local function trim(s)
     return (s:gsub('^%s+', ''):gsub('%s+$', ''))
 end
@@ -721,40 +656,6 @@ local function _build_python_candidates(configured_python, prefer_no_console)
     end
 
     return candidates
-end
-
-local function _detect_format_probe_script()
-    local repo_root = _detect_repo_root()
-    if repo_root ~= '' then
-        local direct = utils.join_path(repo_root, 'plugins/mpv/format_probe.py')
-        if _path_exists(direct) then
-            return direct
-        end
-        direct = utils.join_path(repo_root, 'MPV/format_probe.py')
-        if _path_exists(direct) then
-            return direct
-        end
-    end
-
-    local candidates = {}
-    local seen = {}
-    local source_dir = _get_lua_source_path():match('(.*)[/\\]') or ''
-    local script_dir = mp.get_script_directory() or ''
-    local cwd = utils.getcwd() or ''
-    _append_unique_path(candidates, seen, find_file_upwards(source_dir, 'plugins/mpv/format_probe.py', 8))
-    _append_unique_path(candidates, seen, find_file_upwards(script_dir, 'plugins/mpv/format_probe.py', 8))
-    _append_unique_path(candidates, seen, find_file_upwards(cwd, 'plugins/mpv/format_probe.py', 8))
-    _append_unique_path(candidates, seen, find_file_upwards(source_dir, 'MPV/format_probe.py', 8))
-    _append_unique_path(candidates, seen, find_file_upwards(script_dir, 'MPV/format_probe.py', 8))
-    _append_unique_path(candidates, seen, find_file_upwards(cwd, 'MPV/format_probe.py', 8))
-
-    for _, candidate in ipairs(candidates) do
-        if _path_exists(candidate) then
-            return candidate
-        end
-    end
-
-    return ''
 end
 
 local function _describe_subprocess_result(result)
@@ -1319,11 +1220,7 @@ local function _save_selected_store_to_disk(store)
 end
 
 local function _get_selected_store()
-    local v = ''
-    pcall(function()
-        v = tostring(mp.get_property(SELECTED_STORE_PROP) or '')
-    end)
-    return _normalize_store_name(v)
+    return _normalize_store_name(M._read_user_data_text(SELECTED_STORE_PROP) or '')
 end
 
 local function _set_selected_store(store)
@@ -1383,11 +1280,6 @@ local function _ensure_selected_store_loaded()
     end)
     pcall(M._prime_store_cache_from_disk)
 end
-
-local _pipeline_helper_started = false
-local _last_ipc_error = ''
-local _last_ipc_last_req_json = ''
-local _last_ipc_last_resp_json = ''
 
 -- Debounce helper start attempts (window in seconds).
 -- Initialize below zero so the very first startup attempt is never rejected.
@@ -1466,19 +1358,14 @@ local function _helper_version_ok(text)
 end
 
 local function _is_pipeline_helper_ready()
-    local helper_version = mp.get_property('user-data/medeia-pipeline-helper-version')
-    if helper_version == nil or helper_version == '' then
-        helper_version = mp.get_property_native('user-data/medeia-pipeline-helper-version')
-    end
-    helper_version = M._normalize_mpv_user_data_text(helper_version)
+    local helper_version = M._normalize_mpv_user_data_text(
+        M._read_user_data_text('user-data/medeia-pipeline-helper-version')
+    )
     if helper_version ~= '' and not _helper_version_ok(helper_version) then
         return false
     end
 
-    local ready = mp.get_property(PIPELINE_READY_PROP)
-    if ready == nil or ready == '' then
-        ready = mp.get_property_native(PIPELINE_READY_PROP)
-    end
+    local ready = M._read_user_data_text(PIPELINE_READY_PROP)
     if not ready then
         _helper_ready_last_value = ''
         _helper_ready_last_seen_ts = 0
@@ -1526,14 +1413,8 @@ local function _is_pipeline_helper_ready()
 end
 
 local function _helper_ready_diagnostics()
-    local raw_ready = mp.get_property(PIPELINE_READY_PROP)
-    if raw_ready == nil or raw_ready == '' then
-        raw_ready = mp.get_property_native(PIPELINE_READY_PROP)
-    end
-    local raw_helper_version = mp.get_property('user-data/medeia-pipeline-helper-version')
-    if raw_helper_version == nil or raw_helper_version == '' then
-        raw_helper_version = mp.get_property_native('user-data/medeia-pipeline-helper-version')
-    end
+    local raw_ready = M._read_user_data_text(PIPELINE_READY_PROP)
+    local raw_helper_version = M._read_user_data_text('user-data/medeia-pipeline-helper-version')
     local ready = M._normalize_mpv_user_data_text(raw_ready)
     local helper_version = M._normalize_mpv_user_data_text(raw_helper_version)
     local now = mp.get_time() or 0
@@ -1960,7 +1841,6 @@ local function _run_helper_request_async(req, timeout_seconds, cb)
     local function send_request_payload()
         _lua_log('ipc-async: send request id=' .. tostring(id) .. ' ' .. label)
         local req_json = utils.format_json(req)
-        _last_ipc_last_req_json = req_json
 
         mp.set_property(PIPELINE_RESP_PROP, '')
         mp.set_property(PIPELINE_REQ_PROP, req_json)
@@ -1976,7 +1856,6 @@ local function _run_helper_request_async(req, timeout_seconds, cb)
 
             local resp_raw = M._read_user_data_text(PIPELINE_RESP_PROP)
             if resp_raw and resp_raw ~= '' then
-                _last_ipc_last_resp_json = resp_raw
                 local resp = M._parse_json_loose(resp_raw)
                 if type(resp) == 'table' and resp.id == id then
                     poll_timer:kill()
@@ -3287,7 +3166,7 @@ local function _capture_screenshot()
     local safe_title = _sanitize_filename_component(raw_title)
 
     local filename = safe_title .. '_' .. label .. '.png'
-    local temp_dir = _normalize_fs_path(mp.get_property('user-data/medeia-config-temp'))
+    local temp_dir = _normalize_fs_path(M._read_user_data_text('user-data/medeia-config-temp'))
     if temp_dir == '' then
         temp_dir = _normalize_fs_path(os.getenv('TEMP') or os.getenv('TMP') or '/tmp')
     end
@@ -4067,17 +3946,12 @@ _refresh_store_cache = function(timeout_seconds, on_complete)
         return true
     end
 
-    local cached_json = mp.get_property('user-data/medeia-store-choices-cached')
+    local cached_json = M._read_user_data_text('user-data/medeia-store-choices-cached')
     if cached_json and cached_json ~= '' then
-        local ok, cached_resp = pcall(utils.parse_json, cached_json)
-        if ok then
-            if type(cached_resp) == 'string' then
-                ok, cached_resp = pcall(utils.parse_json, cached_resp)
-            end
-            if ok then
-                if apply_store_choices(cached_resp, 'cache') then
-                    return true
-                end
+        local cached_resp = M._parse_json_loose(cached_json)
+        if type(cached_resp) == 'table' then
+            if apply_store_choices(cached_resp, 'cache') then
+                return true
             end
         else
             _lua_log('stores: cached property parse failed; falling back to direct config')
@@ -4235,12 +4109,6 @@ function M.FileState:set_url(url)
         self.formats = nil
         self.formats_table = nil
     end
-end
-
-function M.FileState:has_formats()
-    return type(self.formats) == 'table'
-        and type(self.formats.rows) == 'table'
-        and #self.formats.rows > 0
 end
 
 function M.FileState:set_formats(url, tbl)
@@ -5332,13 +5200,13 @@ function M.FileState:fetch_formats(cb)
             if cb then table.insert(_formats_waiters[url], cb) end
             return
         end
-        _lua_log('fetch-formats: initiating subprocess probe')
+        _lua_log('fetch-formats: initiating helper probe')
         _formats_inflight[url] = true
         _formats_waiters[url] = _formats_waiters[url] or {}
         if cb then table.insert(_formats_waiters[url], cb) end
 
         M._run_formats_probe_async(url, function(resp, err)
-            _lua_log('fetch-formats: subprocess callback received err=' .. tostring(err))
+            _lua_log('fetch-formats: helper callback received err=' .. tostring(err))
             _formats_inflight[url] = nil
 
             local ok = false
@@ -5348,7 +5216,7 @@ function M.FileState:fetch_formats(cb)
                 reason = nil
                 self:set_formats(url, resp.table)
                 M._cache_formats_for_url(url, resp.table)
-                _lua_log('formats: cached ' .. tostring((resp.table.rows and #resp.table.rows) or 0) .. ' rows for url via subprocess probe')
+                _lua_log('formats: cached ' .. tostring((resp.table.rows and #resp.table.rows) or 0) .. ' rows for url via helper probe')
             else
                 _lua_log('fetch-formats: request failed success=' .. tostring(resp and resp.success))
                 if type(resp) == 'table' then
@@ -5932,32 +5800,23 @@ function M._apply_ytdl_format_and_reload(url, fmt, height)
 
     if _is_ytdlp_url(url) then
         ensure_mpv_ipc_server()
-        ensure_pipeline_helper_running()
-        if _is_pipeline_helper_ready() then
-            _lua_log('change-format: reloading via helper fmt=' .. tostring(playback_fmt))
-            _run_helper_request_async({ op = 'ytdlp-resolve', data = { url = url, format = playback_fmt } }, 45, function(resp, err)
-                local ok = type(resp) == 'table' and resp.success
-                local data = type(resp) == 'table' and resp.data or nil
-                local loaded = type(data) == 'table' and data.loaded
-                if err or not ok or not loaded then
-                    _lua_log('change-format: helper reload failed err=' .. tostring(err or (resp and resp.error)) .. '; falling back to ytdl-hook')
-                    mp.osd_message('Change format: helper failed, trying ytdl-hook', 3)
-                    mp.command_native({
-                        name = 'loadfile',
-                        url = url,
-                        flags = 'replace',
-                        options = load_options,
-                    })
-                else
-                    _lua_log('change-format: helper reload ok fmt=' .. tostring(playback_fmt))
-                    mp.osd_message('Format changed', 2)
-                end
-                if paused then
-                    mp.set_property_native('pause', true)
-                end
-            end)
-            return
-        end
+        _lua_log('change-format: reloading via helper fmt=' .. tostring(playback_fmt))
+        _run_helper_request_async({ op = 'ytdlp-resolve', data = { url = url, format = playback_fmt } }, 45, function(resp, err)
+            local ok = type(resp) == 'table' and resp.success
+            local data = type(resp) == 'table' and resp.data or nil
+            local loaded = type(data) == 'table' and data.loaded
+            if err or not ok or not loaded then
+                _lua_log('change-format: helper reload failed err=' .. tostring(err or (resp and resp.error)))
+                mp.osd_message('Change format failed', 3)
+            else
+                _lua_log('change-format: helper reload ok fmt=' .. tostring(playback_fmt))
+                mp.osd_message('Format changed', 2)
+            end
+            if paused then
+                mp.set_property_native('pause', true)
+            end
+        end)
+        return
     end
 
     _lua_log('change-format: reloading current url with per-file options fmt=' .. tostring(playback_fmt))
@@ -6423,71 +6282,6 @@ mp.register_script_message('medios-download-pick-path', function()
     end)
 end)
 
-local function run_pipeline_via_ipc(pipeline_cmd, seeds, timeout_seconds)
-    if not ensure_pipeline_helper_running() then
-        return nil
-    end
-
-    -- Avoid a race where we send the request before the helper has connected
-    -- and installed its property observer, which would cause a timeout and
-    -- force a noisy CLI fallback.
-    do
-        local deadline = mp.get_time() + 1.0
-        while mp.get_time() < deadline do
-            if _is_pipeline_helper_ready() then
-                break
-            end
-            mp.wait_event(0.05)
-        end
-        if not _is_pipeline_helper_ready() then
-            _pipeline_helper_started = false
-            return nil
-        end
-    end
-
-    local id = tostring(math.floor(mp.get_time() * 1000)) .. '-' .. tostring(math.random(100000, 999999))
-    local req = { id = id, pipeline = pipeline_cmd }
-    if seeds then
-        req.seeds = seeds
-    end
-
-    -- Clear any previous response to reduce chances of reading stale data.
-    mp.set_property(PIPELINE_RESP_PROP, '')
-    mp.set_property(PIPELINE_REQ_PROP, utils.format_json(req))
-
-    local deadline = mp.get_time() + (timeout_seconds or 5)
-    while mp.get_time() < deadline do
-        local resp_raw = M._read_user_data_text(PIPELINE_RESP_PROP)
-        if resp_raw and resp_raw ~= '' then
-            local resp = M._parse_json_loose(resp_raw)
-            if type(resp) == 'table' and resp.id == id then
-                if resp.success then
-                    return resp.stdout or ''
-                end
-                local details = ''
-                if resp.error and tostring(resp.error) ~= '' then
-                    details = tostring(resp.error)
-                end
-                if resp.stderr and tostring(resp.stderr) ~= '' then
-                    if details ~= '' then
-                        details = details .. "\n"
-                    end
-                    details = details .. tostring(resp.stderr)
-                end
-                local log_path = resp.log_path
-                if log_path and tostring(log_path) ~= '' then
-                    details = (details ~= '' and (details .. "\n") or '') .. 'Log: ' .. tostring(log_path)
-                end
-                return nil, (details ~= '' and details or 'unknown')
-            end
-        end
-        mp.wait_event(0.05)
-    end
-    -- Helper may have crashed or never started; allow retry on next call.
-    _pipeline_helper_started = false
-    return nil
-end
-
 -- Detect CLI path
 local function detect_script_dir()
     local dir = mp.get_script_directory()
@@ -6778,7 +6572,7 @@ local function _start_trim_with_range(range)
     _lua_log('trim: calling trim_module.trim_file with range=' .. range)
     
     -- Get temp directory from config or use default
-    local temp_dir = mp.get_property('user-data/medeia-config-temp') or os.getenv('TEMP') or os.getenv('TMP') or '/tmp'
+    local temp_dir = M._read_user_data_text('user-data/medeia-config-temp') or os.getenv('TEMP') or os.getenv('TMP') or '/tmp'
     _lua_log('trim: using temp_dir=' .. temp_dir)
     
     local success, output_path, error_msg = trim_module.trim_file(stream, range, temp_dir)
@@ -7035,9 +6829,7 @@ mp.register_script_message('medios-load-url-event', function(json)
             local loaded = type(data) == 'table' and data.loaded
             if err or not ok then
                 _lua_log('[LOAD-URL] ytdlp plugin resolve failed err=' .. tostring(err or (resp and resp.error)))
-                mp.osd_message('yt-dlp plugin unavailable; trying ytdl-hook', 3)
-                pcall(mp.set_property, 'ytdl', 'yes')
-                pcall(mp.commandv, 'loadfile', url, 'replace')
+                mp.osd_message('yt-dlp resolve failed', 3)
                 return
             end
             _lua_log('[LOAD-URL] ytdlp plugin loaded via helper loaded=' .. tostring(loaded))

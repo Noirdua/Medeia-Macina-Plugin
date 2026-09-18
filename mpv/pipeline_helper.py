@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-18.1"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-18.2"
 
 import argparse
 import json
@@ -556,6 +556,22 @@ def _is_googlevideo_url(url: str) -> bool:
         return False
 
 
+def _needs_googlevideo_wait(url: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(str(url or ""))
+        host = (parsed.hostname or "").lower()
+        path = (parsed.path or "").lower()
+        if not host.endswith(".googlevideo.com"):
+            return False
+        if host.startswith("manifest.") or "m3u8" in path:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def _wait_for_googlevideo_url(
     url: str,
     headers: Dict[str, Any],
@@ -611,12 +627,12 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     if page_url:
         _helper_send(["set_property", "user-data/medeia-current-web-url", page_url], "web-url")
         _write_page_url_file(page_url)
-    if _is_googlevideo_url(play_url) or (audio_url and _is_googlevideo_url(audio_url)):
+    wait_urls = [candidate for candidate in (play_url, audio_url) if _needs_googlevideo_wait(candidate)]
+    if wait_urls:
         started = time.time()
         ready = True
-        for candidate in (play_url, audio_url):
-            if candidate and _is_googlevideo_url(candidate):
-                ready = _wait_for_googlevideo_url(candidate, headers) and ready
+        for candidate in wait_urls:
+            ready = _wait_for_googlevideo_url(candidate, headers) and ready
         _append_helper_log(
             f"[ytdlp-resolve] url-ready ok={ready} waited={time.time() - started:.2f}s"
         )

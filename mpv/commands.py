@@ -523,27 +523,6 @@ def _write_mpv_play_request(url: str) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _resolve_ytdlp_playback(url: str, config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    target = str(url or "").strip()
-    if not target.lower().startswith(("http://", "https://")):
-        return None
-    try:
-        plugin = get_plugin("ytdlp", config or {})
-    except Exception:
-        plugin = None
-    resolve = getattr(plugin, "resolve_playback_url", None) if plugin is not None else None
-    if not callable(resolve):
-        return None
-    try:
-        payload = resolve(target, timeout_seconds=30)
-    except Exception as exc:
-        debug(f"ytdlp resolve_playback_url failed for {target}: {exc}", file=sys.stderr)
-        return None
-    if isinstance(payload, dict) and str(payload.get("url") or "").strip():
-        return payload
-    return None
-
-
 def _resolve_plugin_url(url: str, config: Optional[Dict[str, Any]]) -> str:
     target = str(url or "").strip()
     if not target:
@@ -1823,15 +1802,13 @@ def _queue_items(
         except Exception:
             pass
 
-        # If the target is an AllDebrid protected file URL, unlock it to a direct link for MPV.
-        ytdlp_play: Optional[Dict[str, Any]] = None
         try:
             if isinstance(target, str):
                 target = _resolve_plugin_url(target, config)
                 if _is_probable_ytdl_url(str(target)):
                     _write_mpv_play_request(str(target))
                     try:
-                        running = MPV(silent=True).is_running()
+                        running = MPV().is_running()
                     except Exception:
                         running = False
                     if not running:
@@ -1839,7 +1816,7 @@ def _queue_items(
                     debug(f"_queue_items: helper play-request {target}")
                     continue
         except Exception:
-            ytdlp_play = None
+            pass
 
         # Prefer per-item Hydrus instance credentials when the item belongs to a Hydrus store.
         effective_hydrus_url = hydrus_url
@@ -1981,55 +1958,6 @@ def _queue_items(
                 load_options["ytdl"] = "no"
                 if safe_title:
                     load_options["force-media-title"] = safe_title
-            if ytdlp_play and command_name == "loadfile":
-                if safe_title:
-                    load_options["force-media-title"] = str(safe_title)
-                if ytdlp_play.get("ytdl"):
-                    load_options["ytdl"] = "yes"
-                    cookiefile = str(ytdlp_play.get("cookiefile") or "").replace("\\", "/").strip()
-                    raw_opts: Dict[str, str] = {}
-                    if cookiefile:
-                        raw_opts["cookies"] = cookiefile
-                    else:
-                        raw_opts["cookies-from-browser"] = "chrome"
-                    if raw_opts:
-                        _send_ipc_command(
-                            {
-                                "command": ["set_property", "ytdl-raw-options", raw_opts],
-                                "request_id": 194,
-                            },
-                            silent=True,
-                            wait=True,
-                        )
-                    load_options["ytdl-format"] = "bv*+ba/b"
-                    ytdl_path = str(ytdlp_play.get("ytdl_path") or "").strip()
-                    if ytdl_path:
-                        _send_ipc_command(
-                            {
-                                "command": ["set_property", "ytdl-path", ytdl_path],
-                                "request_id": 195,
-                            },
-                            silent=True,
-                            wait=True,
-                        )
-                else:
-                    load_options["ytdl"] = "no"
-                    audio_url = str(ytdlp_play.get("audio_url") or "").strip()
-                    if audio_url:
-                        load_options["audio-file"] = audio_url
-                    headers = ytdlp_play.get("headers")
-                    if isinstance(headers, dict) and headers:
-                        fields = [f"{key}: {value}" for key, value in headers.items() if key and value]
-                        if fields:
-                            load_options["http-header-fields"] = fields
-                            _send_ipc_command(
-                                {
-                                    "command": ["set_property", "http-header-fields", fields],
-                                    "request_id": 196,
-                                },
-                                silent=True,
-                                wait=True,
-                            )
 
             command_args: List[Any] = [command_name, target_to_send, mode]
             if load_options:
@@ -2116,7 +2044,7 @@ def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:
 
             # If mpv is already running, set log options live via IPC.
             try:
-                mpv_live = MPV(silent=True)
+                mpv_live = MPV()
                 if mpv_live.is_running():
                     mpv_live.set_property("options/log-file", mpv_log_path)
                     mpv_live.set_property("options/msg-level", "cplayer=info,ffmpeg=error,ipc=warn")

@@ -483,9 +483,8 @@ def is_url_supported_by_ytdlp(url: str) -> bool:
 
 _FORMATS_CACHE: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
 _FORMATS_CACHE_TTL_SECONDS = 300.0
-# Shared across processes (the mpv helper and the format_probe.py subprocess) so
-# a playback resolve can seed the Change-Format probe and avoid a second yt-dlp
-# run for the same URL.
+# Shared across processes so a playback resolve can seed the Change-Format
+# probe and avoid a second yt-dlp run for the same URL.
 _FORMATS_DISK_CACHE_DIR = Path(tempfile.gettempdir()) / "medeia-ytdlp-formats-cache"
 
 
