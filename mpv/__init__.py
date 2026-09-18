@@ -18,10 +18,15 @@ class Mpv(Plugin):
     PLUGIN_ALIASES = (".mpv", ".pipe")
     EXPOSE_AS_FILE_PROVIDER = False
     PLUGIN_UPLOADS = (
-        {"dest": "splash.png", "suffixes": (".png", ".jpg", ".jpeg", ".webp", ".bmp")},
+        {
+            "dest": "splash.png",
+            "label": "Splash image",
+            "suffixes": (".png", ".jpg", ".jpeg", ".webp", ".bmp"),
+        },
     )
     CONFIG_HELP = (
         "Requires mpv on PATH. Use .mpv to control playback; Load URL in the player uses yt-dlp for YouTube.",
+        "Idle splash: @N on Splash image, or .config -upload mpv splash.png",
     )
 
     def validate(self) -> bool:
