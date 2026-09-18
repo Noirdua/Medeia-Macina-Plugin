@@ -959,7 +959,9 @@ class ytdlp(TablePluginMixin, Plugin):
     ) -> List[Dict[str, Any]]:
         if not isinstance(formats, list):
             return []
-        browseable = collapse_picker_formats(formats, video_audio_suffix="ba")
+        browseable = collapse_picker_formats(
+            formats, video_audio_suffix="ba", include_audio_only=True
+        )
         return browseable if browseable else list(formats)
 
     def enrich_playlist_entries(

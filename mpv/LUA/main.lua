@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-18.2'
+    local MEDEIA_LUA_VERSION = '2026-09-18.3'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -4822,13 +4822,6 @@ function M._is_browseable_raw_format(fmt)
         return false
     end
 
-    -- Audio-only rows are redundant (video rows already get "+ba" auto-muxed)
-    -- and their collapsed DRC-variant selector ids are frequently not
-    -- resolvable by yt-dlp on their own, which breaks Change Format selection.
-    if vcodec == 'none' and acodec ~= 'none' then
-        return false
-    end
-
     return true
 end
 
@@ -4853,8 +4846,12 @@ function M._raw_format_selection_id(fmt)
     if display_id == '' then
         return ''
     end
+    local format_id = trim(tostring(fmt and fmt.format_id or ''))
     local vcodec = tostring(fmt and fmt.vcodec or 'none')
     local acodec = tostring(fmt and fmt.acodec or 'none')
+    if vcodec == 'none' and acodec ~= 'none' then
+        return format_id ~= '' and format_id or display_id
+    end
     if vcodec ~= 'none' and acodec == 'none' then
         return display_id .. '+ba'
     end
@@ -4923,19 +4920,30 @@ function M._build_formats_table_from_raw_info(url, raw)
 
             local ext = trim(tostring(fmt.ext or ''))
             local size = M._format_bytes_compact(fmt.filesize or fmt.filesize_approx)
+            local vcodec = tostring(fmt.vcodec or 'none')
+            local acodec = tostring(fmt.acodec or 'none')
+            local kind = (vcodec == 'none' and acodec ~= 'none') and 'audio' or 'video'
+            if kind == 'audio' and (resolution == '' or resolution:lower() == 'audio only') then
+                local note = trim(tostring(fmt.format_note or ''))
+                if note ~= '' then
+                    resolution = note
+                end
+            end
             local selection_id = M._raw_format_selection_id(fmt)
-            if selection_id ~= '' then
+            local group_id = kind == 'audio' and (display_id ~= '' and display_id or format_id) or selection_id
+            if selection_id ~= '' and group_id ~= '' then
                 local candidate = {
                     columns = {
                         { name = 'ID', value = display_id ~= '' and display_id or format_id },
                         { name = 'Resolution', value = resolution },
                         { name = 'Ext', value = ext },
                         { name = 'Size', value = size },
+                        { name = 'Kind', value = kind },
                     },
                     selection_args = { '-format', selection_id },
                     _picker_score = M._raw_format_picker_score(fmt),
                 }
-                local existing_index = seen_selection_ids[selection_id]
+                local existing_index = seen_selection_ids[group_id]
                 if existing_index then
                     local existing = rows[existing_index]
                     local existing_score = tonumber(existing and existing._picker_score or 0) or 0
@@ -4944,7 +4952,7 @@ function M._build_formats_table_from_raw_info(url, raw)
                     end
                 else
                     rows[#rows + 1] = candidate
-                    seen_selection_ids[selection_id] = #rows
+                    seen_selection_ids[group_id] = #rows
                 end
             end
         end
@@ -5010,10 +5018,55 @@ function M._cache_formats_from_raw_info(url, raw, source_label)
     return tbl, nil
 end
 
+function M._format_row_kind(row)
+    if type(row) ~= 'table' then
+        return 'video'
+    end
+    if type(row.columns) == 'table' then
+        for _, col in ipairs(row.columns) do
+            if type(col) == 'table' and col.name == 'Kind' then
+                local kind = trim(tostring(col.value or '')):lower()
+                if kind == 'audio' or kind == 'video' then
+                    return kind
+                end
+            end
+        end
+    end
+    local res_val = ''
+    local fmt = ''
+    if type(row.columns) == 'table' then
+        for _, col in ipairs(row.columns) do
+            if type(col) == 'table' and col.name == 'Resolution' then
+                res_val = tostring(col.value or '')
+            end
+        end
+    end
+    local sel = row.selection_args
+    if type(sel) == 'table' then
+        for i = 1, #sel do
+            if tostring(sel[i]) == '-format' and sel[i + 1] then
+                fmt = tostring(sel[i + 1])
+                break
+            end
+        end
+    end
+    if res_val:lower():find('audio', 1, true) then
+        return 'audio'
+    end
+    if fmt:find('+ba', 1, true) or fmt:find('+bestaudio', 1, true) then
+        return 'video'
+    end
+    if M._height_from_resolution_text(res_val) then
+        return 'video'
+    end
+    return 'video'
+end
+
 function M._build_format_picker_items(tbl)
-    local items = {}
+    local video_items = {}
+    local audio_items = {}
     if type(tbl) ~= 'table' or type(tbl.rows) ~= 'table' then
-        return items
+        return {}
     end
     for idx, row in ipairs(tbl.rows) do
         local cols = row.columns or {}
@@ -5027,19 +5080,34 @@ function M._build_format_picker_items(tbl)
             if c.name == 'Ext' then ext_val = tostring(c.value or '') end
             if c.name == 'Size' then size_val = tostring(c.value or '') end
         end
+        local kind = M._format_row_kind(row)
         local label = id_val ~= '' and id_val or ('Format ' .. tostring(idx))
         local hint_parts = {}
-        if res_val ~= '' and res_val ~= 'N/A' then table.insert(hint_parts, res_val) end
+        if res_val ~= '' and res_val ~= 'N/A' and not (kind == 'audio' and res_val:lower() == 'audio only') then
+            table.insert(hint_parts, res_val)
+        end
         if ext_val ~= '' then table.insert(hint_parts, ext_val) end
         if size_val ~= '' and size_val ~= 'N/A' then table.insert(hint_parts, size_val) end
         local hint = table.concat(hint_parts, ' | ')
 
-        local payload = { index = idx }
-        items[#items + 1] = {
+        local payload = { index = idx, kind = kind }
+        local leaf = {
             title = label,
             hint = hint,
             value = { 'script-message-to', mp.get_script_name(), 'medios-change-format-pick', utils.format_json(payload) },
         }
+        if kind == 'audio' then
+            audio_items[#audio_items + 1] = leaf
+        else
+            video_items[#video_items + 1] = leaf
+        end
+    end
+    local items = {}
+    if #video_items > 0 then
+        items[#items + 1] = { title = 'Video', hint = tostring(#video_items), items = video_items }
+    end
+    if #audio_items > 0 then
+        items[#items + 1] = { title = 'Audio', hint = tostring(#audio_items), items = audio_items }
     end
     return items
 end
@@ -5339,18 +5407,34 @@ function M._debug_dump_formatted_formats(url, tbl, items)
 
     _lua_log('formats-dump: url=' .. tostring(url or '') .. ' rows=' .. tostring(row_count) .. ' menu_items=' .. tostring(item_count))
 
-    -- Dump the formatted picker items (first 30) so we can confirm the
-    -- list is being built and looks sane.
     if type(items) == 'table' then
+        local flat = {}
+        local function collect(list, prefix)
+            if type(list) ~= 'table' then
+                return
+            end
+            for _, it in ipairs(list) do
+                local title = tostring(it.title or '')
+                if type(it.items) == 'table' and #it.items > 0 then
+                    collect(it.items, title)
+                else
+                    if prefix ~= '' then
+                        title = prefix .. ' / ' .. title
+                    end
+                    flat[#flat + 1] = { title = title, hint = tostring(it.hint or '') }
+                end
+            end
+        end
+        collect(items, '')
         local limit = 30
-        for i = 1, math.min(#items, limit) do
-            local it = items[i] or {}
+        for i = 1, math.min(#flat, limit) do
+            local it = flat[i] or {}
             local title = tostring(it.title or '')
             local hint = tostring(it.hint or '')
             _lua_log('formats-item[' .. tostring(i) .. ']: ' .. title .. (hint ~= '' and (' | ' .. hint) or ''))
         end
-        if #items > limit then
-            _lua_log('formats-dump: (truncated; total=' .. tostring(#items) .. ')')
+        if #flat > limit then
+            _lua_log('formats-dump: (truncated; total=' .. tostring(#flat) .. ')')
         end
     end
 end
@@ -5359,7 +5443,25 @@ function M._show_format_list_osd(items, max_items)
     if type(items) ~= 'table' then
         return
     end
-    local total = #items
+    local leaves = {}
+    local function collect(list, prefix)
+        if type(list) ~= 'table' then
+            return
+        end
+        for _, it in ipairs(list) do
+            local title = tostring(it.title or '')
+            if type(it.items) == 'table' and #it.items > 0 then
+                collect(it.items, title)
+            else
+                if prefix ~= '' then
+                    title = prefix .. ' / ' .. title
+                end
+                leaves[#leaves + 1] = { title = title, hint = tostring(it.hint or '') }
+            end
+        end
+    end
+    collect(items, '')
+    local total = #leaves
     if total == 0 then
         mp.osd_message('No formats available', 4)
         return
@@ -5370,7 +5472,7 @@ function M._show_format_list_osd(items, max_items)
     end
     local lines = {}
     for i = 1, math.min(total, limit) do
-        local it = items[i] or {}
+        local it = leaves[i] or {}
         local title = tostring(it.title or '')
         local hint = tostring(it.hint or '')
         if hint ~= '' then
@@ -5730,10 +5832,13 @@ end
 -- picker probe, and YouTube's format list can shift between the two calls, so a
 -- literal itag selector can occasionally fail with "Requested format is not
 -- available". Append a resolution-capped fallback so playback still starts.
-function M._format_selector_with_fallback(fmt, height)
+function M._format_selector_with_fallback(fmt, height, kind)
     fmt = trim(tostring(fmt or ''))
     if fmt == '' then
         return fmt
+    end
+    if tostring(kind or '') == 'audio' then
+        return fmt .. '/bestaudio'
     end
     local fallback = {}
     if height and height > 0 then
@@ -5743,7 +5848,7 @@ function M._format_selector_with_fallback(fmt, height)
     return fmt .. '/' .. table.concat(fallback, '/')
 end
 
-function M._apply_ytdl_format_and_reload(url, fmt, height)
+function M._apply_ytdl_format_and_reload(url, fmt, height, kind)
     if not url or url == '' or not fmt or fmt == '' then
         return
     end
@@ -5765,7 +5870,7 @@ function M._apply_ytdl_format_and_reload(url, fmt, height)
     -- Remember the exact picked selector (no fallback) for download reuse, but
     -- apply a fallback-augmented selector for the actual playback reload.
     M._remember_ytdl_download_format(url, fmt)
-    local playback_fmt = M._format_selector_with_fallback(fmt, height)
+    local playback_fmt = M._format_selector_with_fallback(fmt, height, kind)
 
     _lua_log('change-format: setting ytdl format=' .. tostring(playback_fmt))
     _skip_next_store_check_url = _normalize_url_for_store_lookup(url)
@@ -6168,9 +6273,14 @@ mp.register_script_message('medios-change-format-pick', function(json)
     end
     local height = M._height_from_resolution_text(resolution_text)
 
+    local kind = trim(tostring(ev.kind or ''))
+    if kind == '' then
+        kind = M._format_row_kind(row)
+    end
+
     local url = tostring(_pending_format_change.url)
     _pending_format_change = nil
-    M._apply_ytdl_format_and_reload(url, fmt, height)
+    M._apply_ytdl_format_and_reload(url, fmt, height, kind)
 end)
 
 mp.register_script_message('medios-download-pick-store', function(json)

@@ -860,7 +860,7 @@ def probe_url(
     return cast(Optional[Dict[str, Any]], result_container[0])
 
 
-def is_browseable_format(fmt: Any) -> bool:
+def is_browseable_format(fmt: Any, *, include_audio_only: bool = False) -> bool:
     """Check if a format is user-browseable (not storyboard, metadata, etc).
     
     Used by the ytdlp format selector to filter out non-downloadable formats.
@@ -916,11 +916,7 @@ def is_browseable_format(fmt: Any) -> bool:
     if vcodec == "none" and acodec == "none":
         return False
 
-    # Audio-only rows are redundant in the video format picker (every video-only
-    # row already gets "+ba" auto-muxed) and their collapsed DRC-variant selector
-    # ids (e.g. "250-20" -> "250") are frequently not resolvable by yt-dlp on
-    # their own, which makes picking them fail with "format not available".
-    if vcodec == "none" and acodec != "none":
+    if vcodec == "none" and acodec != "none" and not include_audio_only:
         return False
 
     return True
@@ -977,17 +973,30 @@ def _picker_format_score(fmt: Dict[str, Any]) -> tuple[int, int, float]:
     return (prefers_original, avoids_drc, magnitude)
 
 
+def _picker_group_id(fmt: Dict[str, Any], *, video_audio_suffix: str = "ba") -> str:
+    format_id = str(fmt.get("format_id") or "").strip()
+    vcodec = str(fmt.get("vcodec", "none"))
+    acodec = str(fmt.get("acodec", "none"))
+    if vcodec == "none" and acodec != "none":
+        match = re.fullmatch(r"(?P<base>\d+)-[A-Za-z0-9]+", format_id)
+        return "a:" + ((match.group("base") if match else format_id) or format_id)
+    return get_selection_format_id(fmt, video_audio_suffix=video_audio_suffix)
+
+
 def collapse_picker_formats(
     formats: Sequence[Dict[str, Any]],
     *,
     video_audio_suffix: str = "ba",
+    include_audio_only: bool = False,
 ) -> List[Dict[str, Any]]:
     collapsed: Dict[str, Dict[str, Any]] = {}
     order: List[str] = []
     for fmt in formats:
-        if not isinstance(fmt, dict) or not is_browseable_format(fmt):
+        if not isinstance(fmt, dict) or not is_browseable_format(
+            fmt, include_audio_only=include_audio_only
+        ):
             continue
-        selector_id = get_selection_format_id(fmt, video_audio_suffix=video_audio_suffix)
+        selector_id = _picker_group_id(fmt, video_audio_suffix=video_audio_suffix)
         if not selector_id:
             continue
         current = collapsed.get(selector_id)

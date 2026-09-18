@@ -1228,14 +1228,20 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
 
                 ext = str(fmt.get("ext") or "").strip()
                 size = format_bytes(fmt.get("filesize") or fmt.get("filesize_approx"))
+                vcodec = str(fmt.get("vcodec") or "none")
+                acodec = str(fmt.get("acodec") or "none")
+                kind = "audio" if vcodec == "none" and acodec != "none" else "video"
+                if kind == "audio":
+                    selection_id = format_id
+                    note = str(fmt.get("format_note") or "").strip()
+                    if note and (not resolution or resolution.lower() == "audio only"):
+                        resolution = note
+                else:
+                    selection_fn = plugin_attr("ytdlp", "get_selection_format_id")
+                    selection_id = (
+                        selection_fn(fmt, video_audio_suffix="ba") if callable(selection_fn) else None
+                    ) or format_id
 
-                selection_fn = plugin_attr("ytdlp", "get_selection_format_id")
-                selection_id = (
-                    selection_fn(fmt, video_audio_suffix="ba") if callable(selection_fn) else None
-                ) or format_id
-
-                # Build selection args compatible with MPV Lua picker.
-                # Use -format instead of -query so Lua can extract the ID easily.
                 selection_args = ["-format", selection_id]
 
                 rows.append(
@@ -1256,6 +1262,10 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                             {
                                 "name": "Size",
                                 "value": size or ""
+                            },
+                            {
+                                "name": "Kind",
+                                "value": kind
                             },
                         ],
                         "selection_args":
