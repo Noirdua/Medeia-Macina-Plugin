@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-18.3"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-18.4"
 
 import argparse
 import json
@@ -643,59 +643,33 @@ def _ensure_chunk_proxy() -> str:
                 if clen > 0 and start >= clen:
                     self.send_error(416)
                     return
-                if end is not None and clen > 0:
-                    end = min(end, clen - 1)
-                if end is not None and end < start:
-                    end = start
-                bounded = end is not None and (end - start + 1) <= _CHUNK_PROXY_SIZE
+                piece_end = start + _CHUNK_PROXY_SIZE - 1
+                if end is not None:
+                    piece_end = min(piece_end, end)
+                if clen > 0:
+                    piece_end = min(piece_end, clen - 1)
+                if piece_end < start:
+                    piece_end = start
                 try:
-                    if bounded:
-                        body = _fetch_bounded_range(up_url, up_headers, start, end)
-                        self.send_response(206 if range_hdr else 200)
-                        self.send_header("Content-Type", "application/octet-stream")
-                        self.send_header("Accept-Ranges", "bytes")
-                        self.send_header("Content-Length", str(len(body)))
-                        if clen > 0:
-                            self.send_header(
-                                "Content-Range",
-                                f"bytes {start}-{start + max(len(body) - 1, 0)}/{clen}",
-                            )
-                        self.end_headers()
-                        self.wfile.write(body)
-                        return
-                    self.send_response(206 if range_hdr else 200)
-                    self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Accept-Ranges", "bytes")
-                    if clen > 0 and not range_hdr:
-                        self.send_header("Content-Length", str(max(clen - start, 0)))
-                    elif end is not None:
-                        self.send_header("Content-Length", str(end - start + 1))
-                    if clen > 0:
-                        stop = end if end is not None else clen - 1
-                        self.send_header("Content-Range", f"bytes {start}-{stop}/{clen}")
-                    self.end_headers()
-                    pos = start
-                    limit = end if end is not None else ((clen - 1) if clen > 0 else None)
-                    while True:
-                        chunk_end = pos + _CHUNK_PROXY_SIZE - 1
-                        if limit is not None:
-                            chunk_end = min(chunk_end, limit)
-                        if chunk_end < pos:
-                            break
-                        piece = _fetch_bounded_range(up_url, up_headers, pos, chunk_end)
-                        if not piece:
-                            break
-                        self.wfile.write(piece)
-                        pos += len(piece)
-                        if limit is not None and pos > limit:
-                            break
-                        if limit is None and len(piece) < _CHUNK_PROXY_SIZE:
-                            break
+                    body = _fetch_bounded_range(up_url, up_headers, start, piece_end)
                 except Exception:
-                    try:
-                        self.send_error(502)
-                    except Exception:
-                        return
+                    self.send_error(502)
+                    return
+                if not body:
+                    self.send_error(502)
+                    return
+                actual_end = start + len(body) - 1
+                self.send_response(206 if clen > 0 else 200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Content-Length", str(len(body)))
+                if clen > 0:
+                    self.send_header("Content-Range", f"bytes {start}-{actual_end}/{clen}")
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                except Exception:
+                    return
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

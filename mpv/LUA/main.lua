@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 
 local M = {}
 
-    local MEDEIA_LUA_VERSION = '2026-09-18.3'
+    local MEDEIA_LUA_VERSION = '2026-09-18.4'
 local MEDEIA_HELPER_MIN_VERSION = '2026-03-23.1'
 
 -- Expose a tiny breadcrumb for debugging which script version is loaded.
@@ -4142,6 +4142,8 @@ local function _is_direct_media_url(u)
     return low:find('googlevideo.com', 1, true)
         or low:find('googleusercontent.com', 1, true)
         or low:find('ytimg.com', 1, true)
+        or low:find('127.0.0.1:', 1, true)
+        or low:find('localhost:', 1, true)
 end
 
 local _ytdlp_domains_cached = nil
@@ -4157,7 +4159,9 @@ local function _is_ytdlp_url(u)
     -- Direct media CDNs are already-resolved streams, not page URLs.
     if low:find('googlevideo.com', 1, true)
         or low:find('googleusercontent.com', 1, true)
-        or low:find('ytimg.com', 1, true) then
+        or low:find('ytimg.com', 1, true)
+        or low:find('127.0.0.1:', 1, true)
+        or low:find('localhost:', 1, true) then
         return false
     end
     if low:find('youtube.com', 1, true) or low:find('youtu.be', 1, true) then
@@ -5902,6 +5906,7 @@ function M._apply_ytdl_format_and_reload(url, fmt, height, kind)
     end
 
     M._close_uosc_menu_and_sync(DOWNLOAD_FORMAT_MENU_TYPE, 'change-format-reload')
+    mp.osd_message('Loading format: ' .. tostring(fmt), 8)
 
     if _is_ytdlp_url(url) then
         ensure_mpv_ipc_server()
@@ -5912,10 +5917,10 @@ function M._apply_ytdl_format_and_reload(url, fmt, height, kind)
             local loaded = type(data) == 'table' and data.loaded
             if err or not ok or not loaded then
                 _lua_log('change-format: helper reload failed err=' .. tostring(err or (resp and resp.error)))
-                mp.osd_message('Change format failed', 3)
+                mp.osd_message('Format failed: ' .. tostring(fmt), 4)
             else
                 _lua_log('change-format: helper reload ok fmt=' .. tostring(playback_fmt))
-                mp.osd_message('Format changed', 2)
+                mp.osd_message('Format: ' .. tostring(fmt), 3)
             end
             if paused then
                 mp.set_property_native('pause', true)
@@ -5925,6 +5930,7 @@ function M._apply_ytdl_format_and_reload(url, fmt, height, kind)
     end
 
     _lua_log('change-format: reloading current url with per-file options fmt=' .. tostring(playback_fmt))
+    mp.osd_message('Loading format: ' .. tostring(fmt), 8)
     mp.command_native({
         name = 'loadfile',
         url = url,
