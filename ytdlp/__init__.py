@@ -893,6 +893,10 @@ class ytdlp(TablePluginMixin, Plugin):
                         str(info.get("vcodec") or "none") != "none"
                         and str(info.get("acodec") or "none") == "none"
                     )
+                    audio_only = (
+                        str(info.get("vcodec") or "none") == "none"
+                        and str(info.get("acodec") or "none") != "none"
+                    )
                     http_headers = info.get("http_headers") if isinstance(info.get("http_headers"), dict) else headers
                     try:
                         from urllib.request import Request
@@ -915,6 +919,7 @@ class ytdlp(TablePluginMixin, Plugin):
                         "title": str(info.get("title") or "").strip(),
                         "headers": merged,
                         "video_only": video_only,
+                        "audio_only": audio_only,
                         "height": info.get("height"),
                     }
             except Exception as exc:

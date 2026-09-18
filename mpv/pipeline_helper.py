@@ -20,7 +20,7 @@ This helper is intentionally minimal: one request at a time, last-write-wins.
 
 from __future__ import annotations
 
-MEDEIA_MPV_HELPER_VERSION = "2026-09-18.2"
+MEDEIA_MPV_HELPER_VERSION = "2026-09-18.3"
 
 import argparse
 import json
@@ -572,6 +572,153 @@ def _needs_googlevideo_wait(url: str) -> bool:
         return False
 
 
+_CHUNK_PROXY_LOCK = threading.Lock()
+_CHUNK_PROXY_SERVER = None
+_CHUNK_PROXY_ROUTES: Dict[str, tuple[str, Dict[str, str], int]] = {}
+_CHUNK_PROXY_SIZE = 512 * 1024
+
+
+def _clen_from_url(url: str) -> int:
+    try:
+        from urllib.parse import parse_qs, urlparse
+
+        return int((parse_qs(urlparse(url).query).get("clen") or ["0"])[0])
+    except Exception:
+        return 0
+
+
+def _fetch_bounded_range(url: str, headers: Dict[str, str], start: int, end: int) -> bytes:
+    import urllib.request
+
+    request_headers = {
+        str(key): str(value)
+        for key, value in (headers or {}).items()
+        if key and str(value).strip() and str(key).lower() != "range"
+    }
+    request_headers["Range"] = f"bytes={int(start)}-{int(end)}"
+    request = urllib.request.Request(url, headers=request_headers)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read()
+
+
+def _ensure_chunk_proxy() -> str:
+    global _CHUNK_PROXY_SERVER
+    with _CHUNK_PROXY_LOCK:
+        if _CHUNK_PROXY_SERVER is not None:
+            port = _CHUNK_PROXY_SERVER.server_address[1]
+            return f"http://127.0.0.1:{port}"
+
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class _Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args: Any) -> None:
+                return
+
+            def do_GET(self) -> None:  # noqa: N802
+                token = str(self.path or "/").lstrip("/").split("?", 1)[0]
+                with _CHUNK_PROXY_LOCK:
+                    route = _CHUNK_PROXY_ROUTES.get(token)
+                if not route:
+                    self.send_error(404)
+                    return
+                up_url, up_headers, clen = route
+                start = 0
+                end = None
+                range_hdr = str(self.headers.get("Range") or "")
+                if range_hdr.lower().startswith("bytes="):
+                    spec = range_hdr.split("=", 1)[1].strip()
+                    left, _, right = spec.partition("-")
+                    try:
+                        if left:
+                            start = int(left)
+                        if right:
+                            end = int(right)
+                    except ValueError:
+                        start = 0
+                        end = None
+                if start < 0:
+                    start = 0
+                if clen > 0 and start >= clen:
+                    self.send_error(416)
+                    return
+                if end is not None and clen > 0:
+                    end = min(end, clen - 1)
+                if end is not None and end < start:
+                    end = start
+                bounded = end is not None and (end - start + 1) <= _CHUNK_PROXY_SIZE
+                try:
+                    if bounded:
+                        body = _fetch_bounded_range(up_url, up_headers, start, end)
+                        self.send_response(206 if range_hdr else 200)
+                        self.send_header("Content-Type", "application/octet-stream")
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.send_header("Content-Length", str(len(body)))
+                        if clen > 0:
+                            self.send_header(
+                                "Content-Range",
+                                f"bytes {start}-{start + max(len(body) - 1, 0)}/{clen}",
+                            )
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    self.send_response(206 if range_hdr else 200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Accept-Ranges", "bytes")
+                    if clen > 0 and not range_hdr:
+                        self.send_header("Content-Length", str(max(clen - start, 0)))
+                    elif end is not None:
+                        self.send_header("Content-Length", str(end - start + 1))
+                    if clen > 0:
+                        stop = end if end is not None else clen - 1
+                        self.send_header("Content-Range", f"bytes {start}-{stop}/{clen}")
+                    self.end_headers()
+                    pos = start
+                    limit = end if end is not None else ((clen - 1) if clen > 0 else None)
+                    while True:
+                        chunk_end = pos + _CHUNK_PROXY_SIZE - 1
+                        if limit is not None:
+                            chunk_end = min(chunk_end, limit)
+                        if chunk_end < pos:
+                            break
+                        piece = _fetch_bounded_range(up_url, up_headers, pos, chunk_end)
+                        if not piece:
+                            break
+                        self.wfile.write(piece)
+                        pos += len(piece)
+                        if limit is not None and pos > limit:
+                            break
+                        if limit is None and len(piece) < _CHUNK_PROXY_SIZE:
+                            break
+                except Exception:
+                    try:
+                        self.send_error(502)
+                    except Exception:
+                        return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        _CHUNK_PROXY_SERVER = server
+        port = server.server_address[1]
+        _append_helper_log(f"[proxy] chunk proxy listening on 127.0.0.1:{port}")
+        return f"http://127.0.0.1:{port}"
+
+
+def _proxy_googlevideo_url(url: str, headers: Dict[str, Any]) -> str:
+    token = hashlib.sha1(url.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    clean_headers = {
+        str(key): str(value)
+        for key, value in (headers or {}).items()
+        if key and str(value).strip()
+    }
+    with _CHUNK_PROXY_LOCK:
+        _CHUNK_PROXY_ROUTES[token] = (url, clean_headers, _clen_from_url(url))
+    base = _ensure_chunk_proxy()
+    return f"{base}/{token}"
+
+
 def _wait_for_googlevideo_url(
     url: str,
     headers: Dict[str, Any],
@@ -617,8 +764,19 @@ def _load_resolved_playback(payload: Dict[str, Any]) -> bool:
     if title:
         opts["force-media-title"] = title
     headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else {}
+    audio_only = bool(payload.get("audio_only"))
+    proxied = False
+    if audio_only and _is_googlevideo_url(play_url):
+        try:
+            play_url = _proxy_googlevideo_url(play_url, headers)
+            proxied = True
+            _append_helper_log(f"[ytdlp-resolve] audio via chunk proxy {play_url}")
+        except Exception as exc:
+            _append_helper_log(f"[ytdlp-resolve] audio proxy failed: {exc}")
     fields = [f"{key}: {value}" for key, value in headers.items() if key and str(value).strip()]
-    if fields:
+    if proxied:
+        _helper_send(["set_property", "http-header-fields", []], "ytdlp-headers")
+    elif fields:
         _helper_send(["set_property", "http-header-fields", fields], "ytdlp-headers")
     audio_url = str(payload.get("audio_url") or "").strip()
     if audio_url:
@@ -1233,9 +1391,18 @@ def _run_op(op: str, data: Any) -> Dict[str, Any]:
                 kind = "audio" if vcodec == "none" and acodec != "none" else "video"
                 if kind == "audio":
                     selection_id = format_id
+                    abr = fmt.get("abr") or fmt.get("tbr")
+                    codec = acodec.split(".")[0] if acodec and acodec != "none" else ext
+                    bits = ""
+                    try:
+                        if abr:
+                            bits = f"{int(round(float(abr)))}k"
+                    except Exception:
+                        bits = ""
                     note = str(fmt.get("format_note") or "").strip()
-                    if note and (not resolution or resolution.lower() == "audio only"):
-                        resolution = note
+                    if note.lower() in {"audio only", "medium", "low", "high", "tiny"}:
+                        note = ""
+                    resolution = " ".join(part for part in (bits, codec, note) if part).strip() or resolution
                 else:
                     selection_fn = plugin_attr("ytdlp", "get_selection_format_id")
                     selection_id = (
