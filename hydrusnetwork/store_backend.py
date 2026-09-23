@@ -20,6 +20,17 @@ from API.httpx_shared import get_shared_httpx_client
 from SYS.logger import debug, debug_panel, log
 from SYS.utils_constant import mime_maps
 
+
+def _hydrus_error_payload(body: bytes) -> bool:
+    if not body or len(body) > 8192:
+        return False
+    text = body.decode("utf-8", errors="ignore").lstrip().lower()
+    if text.startswith("{") and ('"error"' in text or '"exception_type"' in text or '"traceback"' in text):
+        return True
+    if "traceback" in text and ("error" in text or "exception" in text):
+        return True
+    return False
+
 _KNOWN_EXTS = {
     str(info.get("ext") or "").strip().lstrip(".")
     for category in mime_maps.values()
@@ -889,21 +900,26 @@ class HydrusStoreOperations:
 
             # Upload file if not already present
             if not file_exists:
-                # Clear any prior deletion/missing-file record so Hydrus accepts the re-import.
-                try:
-                    clearer = getattr(client, "clear_file_deletion_record", None)
-                    if callable(clearer):
-                        clearer([file_hash])
-                except Exception:
-                    pass
-                _set_status("uploading file")
-                response = client.add_file(
-                    file_path,
-                    pipeline_progress=pipeline_progress,
-                    transfer_label=transfer_label,
-                )
+                def _upload_file() -> Any:
+                    _set_status("uploading file")
+                    return client.add_file(
+                        file_path,
+                        pipeline_progress=pipeline_progress,
+                        transfer_label=transfer_label,
+                    )
 
+                response = _upload_file()
                 upload_status = response.get("status") if isinstance(response, dict) else None
+                if upload_status == 3:
+                    clearer = getattr(client, "clear_file_deletion_record", None)
+                    if not callable(clearer):
+                        raise Exception(
+                            "Hydrus refused a previously deleted file (status=3) "
+                            "and cannot clear the deletion record."
+                        )
+                    clearer([file_hash])
+                    response = _upload_file()
+                    upload_status = response.get("status") if isinstance(response, dict) else None
                 if upload_status == 4:
                     error_note = response.get("note", "") if isinstance(response, dict) else ""
                     raise Exception(
@@ -915,6 +931,11 @@ class HydrusStoreOperations:
                     error_note = response.get("note", "") if isinstance(response, dict) else ""
                     raise Exception(
                         f"Hydrus reported a file veto (status=7): {error_note or 'file was vetoed by the server'}."
+                    )
+                if upload_status not in (1, 2, None):
+                    error_note = response.get("note", "") if isinstance(response, dict) else ""
+                    raise Exception(
+                        f"Hydrus did not import the file (status={upload_status}): {error_note or response}"
                     )
 
                 hydrus_hash: Optional[str] = None
@@ -2178,18 +2199,22 @@ class HydrusStoreOperations:
                 ) as resp:
                     resp.raise_for_status()
                     content_type = str(resp.headers.get("content-type") or "").lower()
-                    if any(
-                        bad in content_type
-                        for bad in ("application/json", "text/html", "text/plain", "application/cbor")
-                    ):
-                        raise RuntimeError(
-                            f"Hydrus file download returned non-file content-type: {content_type or 'unknown'}"
-                        )
                     try:
                         total_header = resp.headers.get("content-length")
                         total_bytes = int(total_header) if total_header else None
                     except Exception:
                         total_bytes = None
+                    suspicious = any(
+                        marker in content_type
+                        for marker in ("application/json", "text/html", "text/plain", "application/cbor")
+                    )
+                    error_body: Optional[bytes] = None
+                    if suspicious and total_bytes is not None and total_bytes <= 8192:
+                        error_body = resp.read()
+                        if _hydrus_error_payload(error_body):
+                            raise RuntimeError(
+                                f"Hydrus file download returned an error payload: {content_type or 'unknown'}"
+                            )
 
                     if pipeline_progress is not None:
                         try:
@@ -2199,7 +2224,8 @@ class HydrusStoreOperations:
                             transfer_started = False
 
                     with dest_path.open("wb") as fh:
-                        for chunk in resp.iter_bytes():
+                        chunks = (error_body,) if error_body is not None else resp.iter_bytes()
+                        for chunk in chunks:
                             if not chunk:
                                 continue
                             fh.write(chunk)

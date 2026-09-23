@@ -753,7 +753,8 @@ class InternetArchiveOps:
                 try:
                     session = OpenLibraryOps._archive_loan(session, identifier, verbose=False)
                     loaned = True
-                except Exception:
+                except Exception as exc:
+                    log(f"[archive.org] borrow failed: {exc}", file=sys.stderr)
                     loaned = False
 
             return _download_with_requests_session(

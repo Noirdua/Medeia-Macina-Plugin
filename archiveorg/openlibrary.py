@@ -103,7 +103,16 @@ _LANGUAGE_CODE_TO_NAME = {
 
 
 def _create_archive_session() -> requests.Session:
-    return get_requests_session()
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36"
+            )
+        }
+    )
+    return session
 
 try:
     from Crypto.Cipher import AES  # type: ignore
@@ -1376,15 +1385,12 @@ class OpenLibraryOps:
 
         login_resp = session.post(
             "https://archive.org/services/account/login/",
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "X-Csrf-Token": str(token),
-            },
-            data=json.dumps({
+            headers={"X-Csrf-Token": str(token)},
+            json={
                 "username": email_text,
                 "password": password_text,
-                "t": str(token),
-            }),
+                "remember": True,
+            },
             timeout=30,
         )
         try:
@@ -1439,15 +1445,22 @@ class OpenLibraryOps:
             except Exception:
                 raise RuntimeError("The book cannot be borrowed")
 
-        data["action"] = "create_token"
-        response = session.post(
-            "https://archive.org/services/loans/loan/",
-            data=data,
-            timeout=30
-        )
-        if "token" in (response.text or ""):
-            return session
-        raise RuntimeError("Something went wrong when trying to borrow the book")
+        try:
+            data["action"] = "create_token"
+            response = session.post(
+                "https://archive.org/services/loans/loan/",
+                data=data,
+                timeout=30
+            )
+            if "token" in (response.text or ""):
+                return session
+            raise RuntimeError("Something went wrong when trying to borrow the book")
+        except Exception:
+            try:
+                cls._archive_return_loan(session, book_id)
+            except Exception:
+                pass
+            raise
 
     @staticmethod
     def _archive_return_loan(session: requests.Session, book_id: str) -> None:
@@ -2197,8 +2210,8 @@ class OpenLibraryOps:
                 except self.BookNotAvailableError:
                     log("[archive.org] Book not available to borrow", file=sys.stderr)
                     return None
-                except Exception:
-                    log("[archive.org] Borrow failed", file=sys.stderr)
+                except Exception as exc:
+                    log(f"[archive.org] Borrow failed: {exc}", file=sys.stderr)
                     return None
 
                 try:

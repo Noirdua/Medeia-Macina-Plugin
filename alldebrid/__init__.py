@@ -16,7 +16,7 @@ from plugins.alldebrid.api import AllDebridClient, parse_magnet_or_hash, is_torr
 from PluginCore.base import Plugin, SearchResult
 from SYS.plugin_helpers import TablePluginMixin
 from SYS.item_accessors import get_field as _extract_value
-from SYS.utils import sanitize_filename
+from SYS.utils import sanitize_filename, unique_path
 from SYS.logger import log
 from SYS.models import DownloadError, PipeObject
 
@@ -938,6 +938,7 @@ class AllDebrid(TablePluginMixin, Plugin):
                 # the generic HTML guard to avoid falling back to the public hoster.
                 if allow_html:
                     pipe_progress = None
+                    part: Optional[Path] = None
                     try:
                         if isinstance(self.config, dict):
                             pipe_progress = self.config.get("_pipeline_progress")
@@ -951,8 +952,9 @@ class AllDebrid(TablePluginMixin, Plugin):
                             fname = "download"
                         if not Path(fname).suffix:
                             fname = f"{fname}.bin"
-                        dest = Path(output_dir) / fname
+                        dest = unique_path(Path(output_dir) / fname)
                         dest.parent.mkdir(parents=True, exist_ok=True)
+                        part = dest.with_name(dest.name + ".part")
                         with HTTPClient(timeout=30.0) as client:
                             with client._request_stream("GET", unlocked_url, follow_redirects=True) as resp:
                                 resp.raise_for_status()
@@ -971,7 +973,7 @@ class AllDebrid(TablePluginMixin, Plugin):
                                     except Exception:
                                         pass
                                 try:
-                                    with dest.open("wb") as fh:
+                                    with part.open("wb") as fh:
                                         for chunk in resp.iter_bytes():
                                             if not chunk:
                                                 continue
@@ -992,8 +994,15 @@ class AllDebrid(TablePluginMixin, Plugin):
                                             pipe_progress.finish_transfer(label=label)
                                         except Exception:
                                             pass
+                        part.replace(dest)
                         return dest if dest.exists() else None
-                    except Exception:
+                    except Exception as exc:
+                        log(f"[alldebrid] download failed: {exc}", file=sys.stderr)
+                        try:
+                            if part is not None:
+                                part.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                         return None
 
                 # Otherwise, use standard downloader with guardrails.

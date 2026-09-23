@@ -1337,7 +1337,7 @@ class YtDlpTool:
         """Translate DownloadOptions into yt-dlp API options."""
         out_dir = safe_output_dir(opts.output_dir)
         ensure_directory(out_dir)
-        outtmpl = str((out_dir / "%(title)s.%(ext)s").resolve())
+        outtmpl = str((out_dir / "%(title)s [%(id)s].%(ext)s").resolve())
         base_options: Dict[str,
                            Any] = {
                                "outtmpl": outtmpl,
@@ -1610,7 +1610,7 @@ class YtDlpTool:
                 argv.extend(["-S", sort_key])
 
         if output_dir is not None:
-            outtmpl = str((output_dir / "%(title)s.%(ext)s").resolve())
+            outtmpl = str((output_dir / "%(title)s [%(id)s].%(ext)s").resolve())
             argv.extend(["-o", outtmpl])
 
         if extra_args:

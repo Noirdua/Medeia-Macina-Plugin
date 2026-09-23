@@ -368,10 +368,24 @@ class Telegram(Plugin):
             return False
         return False
 
-    def _legacy_session_base_path(self) -> Path:
-        # Older versions stored sessions under Log/medeia_macina.
-        root = Path(__file__).resolve().parents[1]
-        return root / "Log" / "medeia_macina" / "telegram"
+    def _app_root(self) -> Path:
+        here = Path(__file__).resolve()
+        for base in here.parents:
+            if (base / "CLI.py").is_file() or (base / "medios.db").is_file():
+                return base
+        if here.parent.name == "telegram" and here.parent.parent.name == "plugins" and len(here.parents) > 2:
+            return here.parents[2]
+        return here.parents[1]
+
+    def _legacy_session_bases(self) -> List[Path]:
+        here = Path(__file__).resolve()
+        plugin_parent = here.parents[1]
+        app_root = self._app_root()
+        return [
+            app_root / "Log" / "medeia_macina" / "telegram",
+            plugin_parent / "Log" / "medeia_macina" / "telegram",
+            plugin_parent / "telegram",
+        ]
 
     def _migrate_legacy_session_if_needed(self) -> None:
         """If a legacy Telethon session exists, copy it to the new root location."""
@@ -381,10 +395,14 @@ class Telegram(Plugin):
             if new_session.is_file():
                 return
 
-            legacy_base = self._legacy_session_base_path()
-            legacy_session = Path(str(legacy_base) + ".session")
-            if not legacy_session.is_file():
+            legacy_bases = [
+                base
+                for base in self._legacy_session_bases()
+                if Path(str(base) + ".session").is_file()
+            ]
+            if not legacy_bases:
                 return
+            legacy_base = legacy_bases[0]
 
             for suffix in (".session",
                            ".session-journal",
@@ -1047,8 +1065,7 @@ class Telegram(Plugin):
     def _session_base_path(self) -> Path:
         # Store session alongside cookies.txt at repo root.
         # Telethon uses this as base name and writes "<base>.session".
-        root = Path(__file__).resolve().parents[1]
-        return root / "telegram"
+        return self._app_root() / "telegram"
 
     def _credentials(self) -> Tuple[int, str]:
         raw_app_id = self._app_id

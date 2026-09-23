@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import threading
 import time
 import sys
 from pathlib import Path
@@ -1150,7 +1151,17 @@ class Tidal(Plugin):
             debug("[tidal] ffmpeg not found; cannot materialize audio from MPD")
             return None
 
-        if self._has_nonempty_file(output_path):
+        part_path = output_path.with_name(output_path.name + ".part")
+        if part_path.exists():
+            try:
+                output_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                part_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        elif self._has_nonempty_file(output_path):
             return output_path
 
         try:
@@ -1211,6 +1222,15 @@ class Tidal(Plugin):
             cmd_progress.insert(2, "pipe:1")
             cmd_progress.insert(3, "-nostats")
 
+            stderr_text = ""
+
+            def _read_stderr() -> None:
+                nonlocal stderr_text
+                try:
+                    stderr_text = proc.stderr.read() if proc.stderr else ""
+                except Exception:
+                    stderr_text = ""
+
             try:
                 proc = subprocess.Popen(
                     cmd_progress,
@@ -1222,6 +1242,8 @@ class Tidal(Plugin):
                 debug(f"[tidal] ffmpeg invocation failed: {exc}")
                 return False
 
+            stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+            stderr_thread.start()
             last_bytes = None
             try:
                 while True:
@@ -1258,15 +1280,17 @@ class Tidal(Plugin):
             finally:
                 if last_bytes is not None:
                     _update_transfer(last_bytes)
+                stderr_thread.join(timeout=5)
 
             check_path = target_path or output_path
             if proc.returncode == 0 and self._has_nonempty_file(check_path):
                 return True
 
+            if stderr_text:
+                debug(f"[tidal] ffmpeg failed: {stderr_text.strip()}")
             try:
-                stderr_text = proc.stderr.read() if proc.stderr else ""
-                if stderr_text:
-                    debug(f"[tidal] ffmpeg failed: {stderr_text.strip()}")
+                if check_path.exists():
+                    check_path.unlink()
             except Exception:
                 pass
             return False
@@ -1285,10 +1309,18 @@ class Tidal(Plugin):
             "-vn",
             "-c",
             "copy",
-            str(output_path),
+            str(part_path),
         ]
-        if _run(cmd_copy):
+        if _run(cmd_copy, target_path=part_path):
+            try:
+                part_path.replace(output_path)
+            except Exception:
+                return part_path if self._has_nonempty_file(part_path) else None
             return output_path
+        try:
+            part_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
         if not lossless_fallback:
             return None
