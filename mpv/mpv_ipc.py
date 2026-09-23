@@ -206,44 +206,120 @@ def _windows_list_mpv_pids(ipc_path: str) -> List[int]:
     return pids
 
 
+_MPV_VERSION_TIMEOUT = 15.0
+_MPV_ENV_VARS = ("MEDEIA_MPV", "MEDEIA_MPV_PATH", "MPV_EXE", "MPV_PATH")
+
+
+def _bundled_mpv_candidates() -> List[Path]:
+    """Return plugin- and repo-bundled mpv paths, most specific first."""
+    candidates: List[Path] = []
+    for var in _MPV_ENV_VARS:
+        raw = str(os.environ.get(var) or "").strip()
+        if raw:
+            candidates.append(Path(raw).expanduser())
+    try:
+        package_root = _package_root()
+        candidates.append(package_root / "mpv.exe")
+        candidates.append(package_root / "mpv.com")
+    except Exception:
+        pass
+    try:
+        repo_mpv = _repo_root() / "MPV"
+        candidates.append(repo_mpv / "mpv.exe")
+        candidates.append(repo_mpv / "mpv.com")
+    except Exception:
+        pass
+    return candidates
+
+
+def resolve_mpv_executable() -> Optional[str]:
+    """Resolve the mpv player binary.
+
+    Prefers an explicit override (env), then a plugin/repo bundled copy, then
+    PATH. On Windows the real ``mpv.exe`` is preferred over the ``mpv.com``
+    console stub that ``shutil.which("mpv")`` returns because ``PATHEXT`` lists
+    ``.COM`` before ``.EXE``.
+    """
+    for candidate in _bundled_mpv_candidates():
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except Exception:
+            continue
+
+    if platform.system() == "Windows":
+        exe = shutil.which("mpv.exe")
+        if exe:
+            return exe
+        found = shutil.which("mpv")
+        if found:
+            try:
+                path = Path(found)
+                if path.suffix.lower() == ".com":
+                    sibling = path.with_suffix(".exe")
+                    if sibling.is_file():
+                        return str(sibling)
+            except Exception:
+                pass
+            return found
+        return shutil.which("mpv.com")
+
+    return shutil.which("mpv")
+
+
+def _version_probe(mpv_path: str) -> Tuple[bool, Optional[str]]:
+    try:
+        result = subprocess.run(
+            [mpv_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_MPV_VERSION_TIMEOUT,
+            stdin=subprocess.DEVNULL,
+            **_windows_hidden_subprocess_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        # A cold start of a large mpv.exe (AV scan, slow disk) can exceed the
+        # timeout even though the binary is fine. Treat an existing file as
+        # usable instead of disabling playback for the whole session.
+        try:
+            if Path(mpv_path).is_file():
+                return True, None
+        except Exception:
+            pass
+        return False, f"MPV version check timed out after {_MPV_VERSION_TIMEOUT:.0f}s"
+    except Exception as exc:
+        return False, f"Error running MPV: {exc}"
+
+    if result.returncode == 0:
+        return True, None
+    return False, f"MPV returned non-zero exit code: {result.returncode}"
+
+
 def _check_mpv_availability() -> Tuple[bool, Optional[str]]:
     """Return (available, reason) for the mpv executable.
 
-    This checks that:
-    - `mpv` is present in PATH
-    - `mpv --version` can run successfully
-
-    Result is cached per-process to avoid repeated subprocess calls.
+    Validates that the resolved mpv binary can run ``--version``. Results are
+    cached per-process; transient probe failures are not cached so a later call
+    can recover without restarting the app.
     """
     global _MPV_AVAILABILITY_CACHE
     if _MPV_AVAILABILITY_CACHE is not None:
         return _MPV_AVAILABILITY_CACHE
 
-    mpv_path = shutil.which("mpv")
+    mpv_path = resolve_mpv_executable()
     if not mpv_path:
         _MPV_AVAILABILITY_CACHE = (False, "Executable 'mpv' not found in PATH")
         return _MPV_AVAILABILITY_CACHE
 
-    try:
-        result = subprocess.run(
-            [mpv_path,
-             "--version"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            **_windows_hidden_subprocess_kwargs(),
-        )
-        if result.returncode == 0:
-            _MPV_AVAILABILITY_CACHE = (True, None)
-            return _MPV_AVAILABILITY_CACHE
-        _MPV_AVAILABILITY_CACHE = (
-            False,
-            f"MPV returned non-zero exit code: {result.returncode}"
-        )
+    ok, reason = _version_probe(mpv_path)
+    if ok:
+        _MPV_AVAILABILITY_CACHE = (True, None)
         return _MPV_AVAILABILITY_CACHE
-    except Exception as exc:
-        _MPV_AVAILABILITY_CACHE = (False, f"Error running MPV: {exc}")
-        return _MPV_AVAILABILITY_CACHE
+
+    # Only memoize definitive failures; a timeout may be transient.
+    if reason and "timed out" not in reason:
+        _MPV_AVAILABILITY_CACHE = (False, reason)
+    return False, reason
 
 
 def _windows_list_lyric_helper_pids(ipc_path: str) -> List[int]:
@@ -772,8 +848,9 @@ class MPV:
         except Exception:
             pass
 
+        mpv_exe = resolve_mpv_executable() or "mpv"
         cmd: List[str] = [
-            "mpv",
+            mpv_exe,
             f"--config-dir={str(portable_config_dir)}",
             "--load-scripts=yes",
             "--osc=no",
