@@ -213,6 +213,57 @@ class Local(Plugin):
         return " ".join(free).strip() or "*", parsed
 
     @staticmethod
+    def _sidecar_kind(name: str) -> Optional[str]:
+        lower = str(name or "").lower()
+        if lower.endswith(".metadata"):
+            return "metadata"
+        if lower.endswith(".tag"):
+            return "tag"
+        return None
+
+    @staticmethod
+    def _iter_sidecars(root: Path) -> Iterator[os.DirEntry]:
+        stack = [str(root)]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                                continue
+                        except OSError:
+                            continue
+                        if Local._sidecar_kind(entry.name):
+                            yield entry
+            except OSError:
+                continue
+
+    def _iter_indexed_media(self, root: Path) -> Iterator[Tuple[Path, Optional[Path], Optional[Path]]]:
+        grouped: Dict[str, Dict[str, Path]] = {}
+        order: List[str] = []
+        for entry in self._iter_sidecars(root):
+            kind = self._sidecar_kind(entry.name)
+            if not kind:
+                continue
+            suffix = ".metadata" if kind == "metadata" else ".tag"
+            media_name = entry.name[: -len(suffix)]
+            if not media_name:
+                continue
+            media_path = Path(entry.path).parent / media_name
+            key = str(media_path)
+            slot = grouped.get(key)
+            if slot is None:
+                slot = {}
+                grouped[key] = slot
+                order.append(key)
+            slot[kind] = Path(entry.path)
+        for key in order:
+            slot = grouped[key]
+            yield Path(key), slot.get("metadata"), slot.get("tag")
+
+    @staticmethod
     def _iter_files(root: Path) -> Iterator[os.DirEntry]:
         stack = [str(root)]
         while stack:
@@ -286,20 +337,34 @@ class Local(Plugin):
                 continue
 
             try:
-                for entry in self._iter_files(root):
+                if show_all:
+                    media_rows = (
+                        (Path(entry.path), None, None)
+                        for entry in self._iter_files(root)
+                    )
+                else:
+                    media_rows = self._iter_indexed_media(root)
+                for media_path, meta_path, tag_path in media_rows:
                     if len(results) >= max_results:
                         break
 
-                    file_name = entry.name
-                    file_stem = Path(file_name).stem
-                    parent = Path(entry.path).parent
-
-                    tag_path = parent / (file_name + ".tag")
-                    meta_path = parent / (file_name + ".metadata")
-                    has_tag = tag_path.is_file()
-                    has_meta = meta_path.is_file()
-                    if not show_all and not has_meta and not has_tag:
-                        continue
+                    file_name = media_path.name
+                    file_stem = media_path.stem
+                    if show_all:
+                        tag_path = media_path.parent / (file_name + ".tag")
+                        meta_path = media_path.parent / (file_name + ".metadata")
+                        has_tag = tag_path.is_file()
+                        has_meta = meta_path.is_file()
+                    else:
+                        has_tag = tag_path is not None
+                        has_meta = meta_path is not None
+                        if not has_meta and not has_tag:
+                            continue
+                        try:
+                            if not media_path.is_file():
+                                continue
+                        except OSError:
+                            continue
 
                     tags: List[str] = []
                     hash_value: Optional[str] = None
@@ -329,7 +394,7 @@ class Local(Plugin):
                             continue
 
                     try:
-                        size_bytes = int(entry.stat().st_size)
+                        size_bytes = int(media_path.stat().st_size)
                     except Exception:
                         size_bytes = None
 
@@ -366,7 +431,7 @@ class Local(Plugin):
                     sr = SearchResult(
                         table="local",
                         title=display_title,
-                        path=entry.path,
+                        path=str(media_path),
                         detail=inst_label or "local",
                         annotations=[inst_label or "local"],
                         media_kind=media_kind,
