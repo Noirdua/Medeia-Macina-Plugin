@@ -151,6 +151,11 @@ LITERAL_DOMAIN = re.compile(r'(?<!\()(?<!\|)(?<!:)([A-Za-z0-9][A-Za-z0-9_-]{0,})
 # 3) Partial domain tokens that appear alone (e.g., zhihu) — treat as zhihu.com fallback
 PARTIAL_TOKEN = re.compile(r'(?<![A-Za-z0-9_-])([A-Za-z0-9][A-Za-z0-9_-]{1,})(?=(?:\\?[/\)\$]|\\\.|$))')
 
+# Hosts yt-dlp handles whose extractor regex only exposes an alias via an
+# alternation (e.g. the twitter extractor matches x.com). Guarantees routing
+# and support checks even if regex parsing changes across yt-dlp versions.
+_KNOWN_ALIAS_DOMAINS: set[str] = {"x.com", "twitter.com", "t.co"}
+
 _SUPPORTED_DOMAINS: set[str] | None = None
 
 
@@ -169,13 +174,20 @@ def extract_from_pattern(pat: str) -> set[str]:
 
     # 1) Alternation groups followed by .tld
     for alt_group, tld in ALT_GROUP_TLD.findall(pat):
-        # alt_group like "youtube|youtu|youtube-nocookie"
+        # alt_group like "youtube|youtu|youtube-nocookie", but nested groups can
+        # yield tokens such as "(?:twitter" or "www"; strip regex syntax so the
+        # real label survives (e.g. twitter.com for "(?:twitter|x)\\.com").
         for alt in alt_group.split('|'):
-            alt = alt.strip()
-            # remove any non-domain tokens like (?:www\.)? if present inside alt (rare)
-            alt = re.sub(r'\(\?:www\\\.\)\?', '', alt)
-            if alt:
-                domains.add(f"{alt}.{tld}".lower())
+            token = alt.strip()
+            token = re.sub(r'^\(\?:?', '', token)
+            token = re.sub(r'^\(\?', '', token)
+            token = token.replace(')', '').strip()
+            token = re.sub(r'[^A-Za-z0-9.-]', '', token)
+            if not token:
+                continue
+            if token.lower() in {"www", "com", "net", "org", "co"}:
+                continue
+            domains.add(f"{token}.{tld}".lower())
 
     # 2) Literal domain matches (youtube\.com)
     for name, tld in LITERAL_DOMAIN.findall(pat):
@@ -217,7 +229,7 @@ def _build_supported_domains() -> set[str]:
     if _SUPPORTED_DOMAINS is not None:
         return _SUPPORTED_DOMAINS
 
-    _SUPPORTED_DOMAINS = set()
+    _SUPPORTED_DOMAINS = set(_KNOWN_ALIAS_DOMAINS)
     if gen_extractors is None:
         return _SUPPORTED_DOMAINS
 

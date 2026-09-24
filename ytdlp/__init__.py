@@ -574,25 +574,32 @@ class ytdlp(TablePluginMixin, Plugin):
     def config_schema() -> List[Dict[str, Any]]:
         return _ytdlp_config_schema()
 
+    _domain_re = re.compile(
+        r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+    )
+
+    @classmethod
+    def _valid_domain(cls, value: Any) -> bool:
+        text = str(value or "").strip().lower()
+        return bool(text) and bool(cls._domain_re.match(text))
+
     @classmethod
     def url_patterns(cls) -> Tuple[str, ...]:
+        domains = {d.lower() for d in cls._fallback_domains}
         try:
-            import yt_dlp
+            # Prefer domains parsed from each extractor's _VALID_URL: this catches
+            # alternate hosts such as x.com/t.co for the twitter extractor, which
+            # IE_NAME alone ("twitter") would miss.
+            from plugins.ytdlp.tooling import _build_supported_domains
 
-            domains = set(cls._fallback_domains)
-            try:
-                extractors = yt_dlp.gen_extractors()
-                for extractor_class in extractors:
-                    name = getattr(extractor_class, "IE_NAME", "")
-                    if name and name not in ("generic", "http"):
-                        name_lower = name.lower().replace("ie", "").strip()
-                        if name_lower and len(name_lower) > 2:
-                            domains.add(f"{name_lower}.com")
-            except Exception:
-                pass
-            return tuple(domains) if domains else tuple(cls._fallback_domains)
+            for domain in _build_supported_domains():
+                if cls._valid_domain(domain):
+                    domains.add(str(domain).strip().lower())
         except Exception:
+            pass
+        if not domains:
             return tuple(cls._fallback_domains)
+        return tuple(sorted(domains))
 
     _fallback_domains = [
         "youtube.com", "youtu.be",
@@ -602,6 +609,8 @@ class ytdlp(TablePluginMixin, Plugin):
         "dailymotion.com",
         "rumble.com",
         "odysee.com",
+        "x.com", "twitter.com", "t.co",
+        "instagram.com", "tiktok.com", "reddit.com",
     ]
 
     TABLE_AUTO_STAGES = {
