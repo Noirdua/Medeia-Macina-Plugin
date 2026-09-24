@@ -1365,6 +1365,11 @@ CMDLET = Cmdlet(
             required=False,
         ),
     ],
+    examples=[
+        ".matrix",
+        ".matrix -refresh-rooms",
+        '@1 | .matrix -query "room:General"',
+    ],
     exec=_run,
 )
 

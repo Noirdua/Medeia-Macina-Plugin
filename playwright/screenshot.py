@@ -2207,6 +2207,11 @@ CMDLET = Cmdlet(
         "Use -query \"adblock:false\" if a site breaks and you need the raw unfiltered page.",
         "Use -query \"quality:1\" through \"quality:10\" to control jpeg/webp compression. quality:10 uses lossless webp.",
     ],
+    examples=[
+        "screen-shot https://example.com",
+        'file -screenshot https://example.com -query "format:webp mode:full"',
+        '@1 | file -screenshot -query "format:png"',
+    ],
 )
 
 CMDLET.exec = _run

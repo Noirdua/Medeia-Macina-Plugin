@@ -44,7 +44,7 @@ class Playwright(Plugin):
     PLUGIN_VERSION = "1.0.0"
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = "Browser automation and page screenshots."
-    SUPPORTED_CMDLETS = frozenset({"screen-shot"})
+    SUPPORTED_CMDLETS = frozenset()
     FILE_ACTIONS: Dict[str, Dict[str, Any]] = {
         "screenshot": {
             "flags": (
