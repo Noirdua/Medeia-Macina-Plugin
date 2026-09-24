@@ -714,23 +714,67 @@ class Matrix(TablePluginMixin, Plugin):
         headers["Content-Type"] = mime_type
 
         filename = path.name
+        total_bytes = int(path.stat().st_size)
+        headers["Content-Length"] = str(total_bytes)
+        pipeline_progress = kwargs.get("pipeline_progress")
+        use_pipeline = False
+        if pipeline_progress is not None:
+            try:
+                ui, _ = pipeline_progress.ui_and_pipe_index()
+                use_pipeline = ui is not None
+            except Exception:
+                use_pipeline = False
+
+        def _on_progress(completed: int, total: Optional[int]) -> None:
+            if pipeline_progress is None:
+                return
+            try:
+                pipeline_progress.update_transfer(
+                    label=filename,
+                    completed=int(completed),
+                    total=int(total or total_bytes),
+                )
+            except Exception:
+                pass
+
+        if use_pipeline:
+            try:
+                pipeline_progress.begin_transfer(label=filename, total=total_bytes)
+            except Exception:
+                use_pipeline = False
 
         # Upload media
         upload_url = f"{base}/_matrix/media/v3/upload"
-        with open(path, "rb") as handle:
-            wrapped = ProgressFileReader(
-                handle,
-                total_bytes=int(path.stat().st_size),
-                label="upload"
-            )
-            resp = get_requests_session().post(
-                upload_url,
-                headers=headers,
-                data=wrapped,
-                params={
-                    "filename": filename
-                }
-            )
+        resp = None
+        try:
+            with open(path, "rb") as handle:
+                wrapped = ProgressFileReader(
+                    handle,
+                    total_bytes=total_bytes,
+                    label=filename,
+                    on_progress=_on_progress if use_pipeline else None,
+                    show_bar=not use_pipeline,
+                )
+                resp = get_requests_session().post(
+                    upload_url,
+                    headers=headers,
+                    data=wrapped,
+                    params={
+                        "filename": filename
+                    }
+                )
+        finally:
+            if use_pipeline:
+                try:
+                    if resp is not None and resp.status_code == 200:
+                        pipeline_progress.update_transfer(
+                            label=filename,
+                            completed=total_bytes,
+                            total=total_bytes,
+                        )
+                    pipeline_progress.finish_transfer(label=filename)
+                except Exception:
+                    pass
         if resp.status_code != 200:
             raise Exception(f"Matrix upload failed: {resp.text}")
         content_uri = (resp.json() or {}).get("content_uri")
@@ -861,6 +905,7 @@ class Matrix(TablePluginMixin, Plugin):
             instance=instance_name,
             pipe_obj=kwargs.get("pipe_obj"),
             mime_type=kwargs.get("mime_type"),
+            pipeline_progress=kwargs.get("pipeline_progress"),
         )
 
     def selector(

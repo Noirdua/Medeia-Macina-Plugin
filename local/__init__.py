@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -14,6 +15,27 @@ from SYS.metadata import (
     write_merged_sidecar,
 )
 from SYS.utils import coerce_bool, format_bytes, sanitize_filename, sha256_file, unique_path
+
+_SEARCH_SPLIT = re.compile(r"[^a-z0-9]+")
+_HEX_RE = re.compile(r"^[0-9a-f]+$")
+
+
+def _search_tokens(*parts: str) -> set[str]:
+    text = " ".join(str(part or "") for part in parts).lower()
+    return {tok for tok in _SEARCH_SPLIT.split(text) if tok}
+
+
+def _query_matches(tokens: List[str], fields: set[str], hash_value: Optional[str]) -> bool:
+    digest = str(hash_value or "").strip().lower()
+    for token in tokens:
+        if token in fields or any(field.startswith(token) for field in fields):
+            continue
+        if len(token) >= 3 and any(token in field for field in fields):
+            continue
+        if digest and len(token) >= 6 and _HEX_RE.fullmatch(token) and digest.startswith(token):
+            continue
+        return False
+    return True
 
 
 def _copy_sidecars(source_path: Path, target_path: Path) -> None:
@@ -384,13 +406,8 @@ class Local(Plugin):
                             pass
 
                     if not match_all and query_tokens:
-                        url_text = " ".join(urls) if urls else ""
-                        search_text = " ".join(
-                            [file_name.lower(), file_stem.lower().replace("_", " "), *tags, url_text]
-                        )
-                        if hash_value:
-                            search_text += " " + hash_value.lower()
-                        if not all(token in search_text for token in query_tokens):
+                        fields = _search_tokens(file_name, file_stem, *tags, *urls)
+                        if not _query_matches(query_tokens, fields, hash_value):
                             continue
 
                     try:
