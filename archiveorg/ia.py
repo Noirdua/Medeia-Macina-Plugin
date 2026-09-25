@@ -4,13 +4,12 @@ import importlib
 import os
 import re
 import sys
-import requests
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from urllib.parse import quote, unquote, urlparse
 
-from API.HTTP import download_direct_file
+from API.HTTP import PageResponse, PageSession, download_direct_file
 from PluginCore.base import SearchResult
 from SYS.utils import sanitize_filename, unique_path
 from SYS.logger import log
@@ -182,7 +181,7 @@ def _pick_archive_credentials(config: Any) -> tuple[Optional[str], Optional[str]
     return archive_credentials(config)
 
 
-def _filename_from_response(url: str, response: requests.Response, suggested_filename: Optional[str] = None) -> str:
+def _filename_from_response(url: str, response: PageResponse, suggested_filename: Optional[str] = None) -> str:
     suggested = str(suggested_filename or "").strip()
     if suggested:
         guessed_ext = Path(str(_extract_download_filename_from_url(url) or "")).suffix
@@ -214,7 +213,7 @@ def _filename_from_response(url: str, response: requests.Response, suggested_fil
 
 def _download_with_requests_session(
     *,
-    session: requests.Session,
+    session: PageSession,
     url: str,
     output_dir: Path,
     suggested_filename: Optional[str] = None,
@@ -327,7 +326,7 @@ def _archive_item_access(identifier: str) -> Dict[str, Any]:
     if not ident:
         return {"mediatype": "", "lendable": False, "collection": []}
 
-    session = requests.Session()
+    session = PageSession()
     try:
         response = session.get(f"https://archive.org/metadata/{ident}", timeout=8)
         response.raise_for_status()
@@ -728,7 +727,7 @@ class InternetArchiveOps:
             return None
 
         identifier = _extract_identifier_from_any(url)
-        session: Optional[requests.Session] = None
+        session: Optional[PageSession] = None
         loaned = False
         try:
             session = OpenLibraryOps._archive_login(email, password)

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
-from API.requests_client import get_requests_session
+from API.HTTP import PageResponse, PageSession, get_page_session
 from SYS.utils import ffprobe as probe_media_metadata
 
 from PluginCore.base import Plugin, SearchResult
@@ -255,7 +255,7 @@ def _matrix_health_check(*,
         if not base:
             return False, "Matrix homeserver missing"
 
-        resp = get_requests_session().get(f"{base}/_matrix/client/versions", timeout=5)
+        resp = get_page_session().get(f"{base}/_matrix/client/versions", timeout=5)
         if resp.status_code != 200:
             return False, f"Homeserver returned {resp.status_code}"
 
@@ -263,7 +263,7 @@ def _matrix_health_check(*,
             headers = {
                 "Authorization": f"Bearer {access_token}"
             }
-            resp = get_requests_session().get(
+            resp = get_page_session().get(
                 f"{base}/_matrix/client/v3/account/whoami",
                 headers=headers,
                 timeout=5
@@ -617,7 +617,7 @@ class Matrix(TablePluginMixin, Plugin):
         headers = {
             "Authorization": f"Bearer {token}"
         }
-        resp = get_requests_session().get(
+        resp = get_page_session().get(
             f"{base}/_matrix/client/v3/joined_rooms",
             headers=headers,
             timeout=10
@@ -673,7 +673,7 @@ class Matrix(TablePluginMixin, Plugin):
             # Best-effort room name lookup (safe to fail).
             try:
                 encoded = quote(room_id, safe="")
-                name_resp = get_requests_session().get(
+                name_resp = get_page_session().get(
                     f"{base}/_matrix/client/v3/rooms/{encoded}/state/m.room.name",
                     headers=headers,
                     timeout=5,
@@ -755,7 +755,7 @@ class Matrix(TablePluginMixin, Plugin):
                     on_progress=_on_progress if use_pipeline else None,
                     show_bar=not use_pipeline,
                 )
-                resp = get_requests_session().post(
+                resp = get_page_session().post(
                     upload_url,
                     headers=headers,
                     data=wrapped,
@@ -812,7 +812,7 @@ class Matrix(TablePluginMixin, Plugin):
         send_headers = {
             "Authorization": f"Bearer {token}"
         }
-        send_resp = get_requests_session().put(send_url, headers=send_headers, json=payload)
+        send_resp = get_page_session().put(send_url, headers=send_headers, json=payload)
         if send_resp.status_code != 200:
             raise Exception(f"Matrix send message failed: {send_resp.text}")
 
@@ -861,7 +861,7 @@ class Matrix(TablePluginMixin, Plugin):
             "msgtype": "m.text",
             "body": message
         }
-        send_resp = get_requests_session().put(send_url, headers=send_headers, json=payload)
+        send_resp = get_page_session().put(send_url, headers=send_headers, json=payload)
         if send_resp.status_code != 200:
             raise Exception(f"Matrix send text failed: {send_resp.text}")
 

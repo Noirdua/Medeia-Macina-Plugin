@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import httpx
+
 import html as html_std
 import logging
 import re
-import requests
 
-from API.requests_client import get_requests_session
+from API.HTTP import PageResponse, PageSession, get_page_session
 import sys
 import time
 from pathlib import Path
@@ -303,7 +304,7 @@ def _enrich_book_tags_from_isbn(isbn: str,
     # 1) OpenLibrary API lookup by ISBN (short timeout, silent failure).
     try:
         url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn_clean}&jscmd=data&format=json"
-        resp = get_requests_session().get(url, timeout=4)
+        resp = get_page_session().get(url, timeout=4)
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, dict) and data:
@@ -424,7 +425,7 @@ def _fetch_libgen_details_html(
     try:
         if timeout is None:
             timeout = (DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT)
-        session = get_requests_session()
+        session = get_page_session()
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         }
@@ -1170,8 +1171,8 @@ def _call(logger: LogFn, message: str) -> None:
 class LibgenSearch:
     """Robust LibGen searcher."""
 
-    def __init__(self, session: Optional[requests.Session] = None):
-        self.session = session or get_requests_session()
+    def __init__(self, session: Optional[PageSession] = None):
+        self.session = session or get_page_session()
         # Ensure a modern browser UA is present without clobbering existing one.
         if not any(k.lower() == "user-agent" for k in (self.session.headers or {})):
             self.session.headers.update(
@@ -1346,10 +1347,10 @@ class LibgenSearch:
                 else:
                     _call(log_info, "[libgen] Mirror returned 0 results; stopping mirror fallback")
                     break
-            except requests.exceptions.Timeout:
+            except httpx.TimeoutException:
                 _call(log_info, f"[libgen] Mirror timed out: {mirror}")
                 continue
-            except requests.exceptions.RequestException:
+            except httpx.HTTPError:
                 _call(log_info, f"[libgen] Mirror request failed: {mirror}")
                 continue
             except Exception as e:
@@ -1710,7 +1711,7 @@ def search_libgen(
     column: str = "def",
     log_info: LogFn = None,
     log_error: ErrorFn = None,
-    session: Optional[requests.Session] = None,
+    session: Optional[PageSession] = None,
 ) -> List[Dict[str,
                Any]]:
     """Search Libgen using json.php, with HTML scrape only if the API fails."""
@@ -1754,7 +1755,7 @@ def _get_php_url_from_ads_html(base_url: str, html: str, md5: str = "") -> Optio
 
 
 def _resolve_download_url(
-    session: requests.Session,
+    session: PageSession,
     url: str,
     log_info: LogFn = None,
 ) -> Tuple[Optional[str], Optional[str]]:
@@ -2014,14 +2015,14 @@ def download_from_mirror(
     *,
     log_info: LogFn = None,
     log_error: ErrorFn = None,
-    session: Optional[requests.Session] = None,
+    session: Optional[PageSession] = None,
     progress_callback: Optional[Callable[[int,
                                           int],
                                          None]] = None,
 ) -> Tuple[bool,
            Optional[Path]]:
     """Download file from a LibGen mirror URL with optional progress tracking."""
-    session = session or get_requests_session()
+    session = session or get_page_session()
     # Ensure a modern browser User-Agent is used for downloads to avoid mirror blocks.
     if not any(
             k.lower() == "user-agent"

@@ -7,10 +7,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
-import requests
 
-from API.requests_client import get_requests_session
+from API.HTTP import PageResponse, PageSession, get_page_session
 from PluginCore.base import Plugin, SearchResult
 from SYS.logger import debug, log
 from SYS.utils import sanitize_filename, unique_path
@@ -79,7 +79,7 @@ class Scraper:
     def _get_page(self, page: int) -> List[TorrentInfo]:
         url, payload = self._request_data(page)
         try:
-            resp = get_requests_session().get(
+            resp = get_page_session().get(
                 url,
                 params=payload,
                 headers=self.headers,
@@ -93,18 +93,18 @@ class Scraper:
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
         return self.base, {}
 
-    def _parse_search(self, response: requests.Response) -> List[TorrentInfo]:  # pragma: no cover - interface
+    def _parse_search(self, response: PageResponse) -> List[TorrentInfo]:  # pragma: no cover - interface
         raise NotImplementedError
 
     def _parse_detail(self, url: str) -> Optional[str]:  # optional override
         try:
-            resp = get_requests_session().get(url, headers=self.headers, timeout=self.timeout)
+            resp = get_page_session().get(url, headers=self.headers, timeout=self.timeout)
             resp.raise_for_status()
             return self._parse_detail_response(resp)
         except Exception:
             return None
 
-    def _parse_detail_response(self, response: requests.Response) -> Optional[str]:  # pragma: no cover - interface
+    def _parse_detail_response(self, response: PageResponse) -> Optional[str]:  # pragma: no cover - interface
         return None
 
     @staticmethod
@@ -132,7 +132,7 @@ class NyaaScraper(Scraper):
             payload["o"] = "asc" if params.order_ascending else "desc"
         return f"{self.base}/", payload
 
-    def _parse_search(self, response: requests.Response) -> List[TorrentInfo]:
+    def _parse_search(self, response: PageResponse) -> List[TorrentInfo]:
         if lxml_html is None:
             return []
         doc = lxml_html.fromstring(response.text)
@@ -193,7 +193,7 @@ class X1337Scraper(Scraper):
             self.base = base
             try:
                 url, payload = self._request_data(page)
-                resp = get_requests_session().get(
+                resp = get_page_session().get(
                     url,
                     params=payload or None,
                     headers=self.headers,
@@ -215,7 +215,7 @@ class X1337Scraper(Scraper):
             order = f"{params.order_column}/{direction}"
 
         category = params.category
-        name = requests.utils.quote(params.name)
+        name = quote(params.name)
 
         if order and category:
             path = f"/sort-category-search/{name}/{category}/{order}"
@@ -229,7 +229,7 @@ class X1337Scraper(Scraper):
         url = f"{self.base}{path}/{page}/"
         return url, {}
 
-    def _parse_search(self, response: requests.Response) -> List[TorrentInfo]:
+    def _parse_search(self, response: PageResponse) -> List[TorrentInfo]:
         if lxml_html is None:
             return []
         doc = lxml_html.fromstring(response.text)
@@ -263,7 +263,7 @@ class X1337Scraper(Scraper):
             results.append(info)
         return results
 
-    def _parse_detail_response(self, response: requests.Response) -> Optional[str]:
+    def _parse_detail_response(self, response: PageResponse) -> Optional[str]:
         if lxml_html is None:
             return None
         doc = lxml_html.fromstring(response.text)
@@ -300,7 +300,7 @@ class YTSScraper(Scraper):
         }
         for base in self.API_BASES:
             try:
-                resp = get_requests_session().get(
+                resp = get_page_session().get(
                     f"{base}/list_movies.json",
                     params=payload,
                     headers=self.headers,
@@ -324,7 +324,7 @@ class YTSScraper(Scraper):
         }
         return f"{self.base}/list_movies.json", payload
 
-    def _parse_search(self, response: requests.Response) -> List[TorrentInfo]:
+    def _parse_search(self, response: PageResponse) -> List[TorrentInfo]:
         results: List[TorrentInfo] = []
         data = response.json()
         if data.get("status") != "ok":
@@ -352,7 +352,7 @@ class YTSScraper(Scraper):
     def _build_magnet(self, torrent: Dict[str, Any], name: str) -> str:
         return (
             f"magnet:?xt=urn:btih:{torrent.get('hash')}"
-            f"&dn={requests.utils.quote(name)}&tr={self.TRACKERS}"
+            f"&dn={quote(name)}&tr={self.TRACKERS}"
         )
 
 
@@ -367,7 +367,7 @@ class ApiBayScraper(Scraper):
         params = self.params or SearchParams(name="")
         return f"{self.base}/q.php", {"q": params.name}
 
-    def _parse_search(self, response: requests.Response) -> List[TorrentInfo]:
+    def _parse_search(self, response: PageResponse) -> List[TorrentInfo]:
         results: List[TorrentInfo] = []
         try:
             data = response.json()
@@ -409,7 +409,7 @@ class ApiBayScraper(Scraper):
     def _build_magnet(info_hash: str, name: str) -> str:
         return (
             f"magnet:?xt=urn:btih:{info_hash}"
-            f"&dn={requests.utils.quote(name)}"
+            f"&dn={quote(name)}"
             f"&tr={'&tr='.join(_DEFAULT_TRACKERS)}"
         )
 
@@ -795,7 +795,7 @@ class Torrent(Plugin):
             return text
         if "&tr=" in text or "?tr=" in text:
             return text
-        extra = "&".join(f"tr={requests.utils.quote(tr, safe='')}" for tr in _DEFAULT_TRACKERS)
+        extra = "&".join(f"tr={quote(tr, safe='')}" for tr in _DEFAULT_TRACKERS)
         sep = "&" if "?" in text else "?"
         return f"{text}{sep}{extra}"
 

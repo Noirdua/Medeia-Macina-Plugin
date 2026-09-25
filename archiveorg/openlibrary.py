@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import httpx
+
 import base64
 import io
 from concurrent import futures
@@ -14,10 +16,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-import requests
 
 from API.HTTP import HTTPClient
-from API.requests_client import get_requests_session
+from API.HTTP import PageResponse, PageSession, get_page_session
 from PluginCore.base import SearchResult
 from plugins.archiveorg._common import archive_credentials, plugin_config_entry
 from SYS.utils import sanitize_filename
@@ -102,8 +103,8 @@ _LANGUAGE_CODE_TO_NAME = {
 }
 
 
-def _create_archive_session() -> requests.Session:
-    session = requests.Session()
+def _create_archive_session() -> PageSession:
+    session = PageSession()
     session.headers.update(
         {
             "User-Agent": (
@@ -320,7 +321,7 @@ def _extract_archive_candidates(payload: Any) -> List[str]:
     return out
 
 
-def _check_lendable(session: requests.Session, edition_id: str) -> Tuple[bool, str]:
+def _check_lendable(session: PageSession, edition_id: str) -> Tuple[bool, str]:
     """Return (lendable, status_text) using OpenLibrary volumes API."""
     try:
         if not edition_id or not edition_id.startswith("OL") or not edition_id.endswith(
@@ -347,14 +348,14 @@ def _check_lendable(session: requests.Session, edition_id: str) -> Tuple[bool, s
             status_val = str(first)
 
         return ("lendable" in status_val.lower()), status_val
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         return False, "api-timeout"
     except Exception:
         return False, "api-error"
 
 
 def _resolve_archive_id(
-    session: requests.Session,
+    session: PageSession,
     edition_id: str,
     ia_candidates: List[str]
 ) -> str:
@@ -391,7 +392,7 @@ def _resolve_archive_id(
 
 
 def _fetch_work_editions(
-    session: requests.Session,
+    session: PageSession,
     work_key: str,
     *,
     limit: int = 200,
@@ -434,7 +435,7 @@ def _fetch_work_editions(
 
 
 def _fetch_openlibrary_edition_metadata(
-    session: requests.Session,
+    session: PageSession,
     edition_id: str,
 ) -> Dict[str, Any]:
     if not edition_id:
@@ -1340,7 +1341,7 @@ class OpenLibraryOps:
             return _DEFAULT_ARCHIVE_SCALE
 
     @staticmethod
-    def _archive_error_body(response: requests.Response) -> str:
+    def _archive_error_body(response: PageResponse) -> str:
         try:
             body = response.text or ""
         except Exception:
@@ -1350,7 +1351,7 @@ class OpenLibraryOps:
         return body
 
     @classmethod
-    def _archive_logged_in(cls, session: requests.Session) -> bool:
+    def _archive_logged_in(cls, session: PageSession) -> bool:
         try:
             cookies = getattr(session, "cookies", None)
             if cookies is None:
@@ -1360,7 +1361,7 @@ class OpenLibraryOps:
             return False
 
     @classmethod
-    def _archive_login(cls, email: str, password: str) -> requests.Session:
+    def _archive_login(cls, email: str, password: str) -> PageSession:
         """Login to archive.org via CSRF token (OpenLibrary uses the same account)."""
         session = _create_archive_session()
         email_text = str(email or "").strip()
@@ -1411,11 +1412,11 @@ class OpenLibraryOps:
     @classmethod
     def _archive_loan(
         cls,
-        session: requests.Session,
+        session: PageSession,
         book_id: str,
         *,
         verbose: bool = True
-    ) -> requests.Session:
+    ) -> PageSession:
         data = {
             "action": "grant_access",
             "identifier": book_id
@@ -1463,7 +1464,7 @@ class OpenLibraryOps:
             raise
 
     @staticmethod
-    def _archive_return_loan(session: requests.Session, book_id: str) -> None:
+    def _archive_return_loan(session: PageSession, book_id: str) -> None:
         data = {
             "action": "return_loan",
             "identifier": book_id
@@ -1482,7 +1483,7 @@ class OpenLibraryOps:
         raise RuntimeError("Something went wrong when trying to return the book")
 
     @staticmethod
-    def _archive_logout(session: requests.Session) -> None:
+    def _archive_logout(session: PageSession) -> None:
         """Best-effort logout from archive.org.
 
         Archive sessions are cookie-based; returning the loan is the critical step.
@@ -1517,7 +1518,7 @@ class OpenLibraryOps:
         if not ident:
             return False, "no-archive-id"
         try:
-            resp = get_requests_session().get(
+            resp = get_page_session().get(
                 f"https://archive.org/metadata/{ident}",
                 timeout=8,
             )
@@ -1543,7 +1544,7 @@ class OpenLibraryOps:
             return False, "archive-metadata-error"
 
     @staticmethod
-    def _archive_get_book_infos(session: requests.Session,
+    def _archive_get_book_infos(session: PageSession,
                                 url: str) -> Tuple[str,
                                                    List[str],
                                                    Dict[str,
@@ -1632,7 +1633,7 @@ class OpenLibraryOps:
     @classmethod
     def _archive_download_one_image(
         cls,
-        session: requests.Session,
+        session: PageSession,
         link: str,
         i: int,
         directory: str,
@@ -1675,7 +1676,7 @@ class OpenLibraryOps:
     @classmethod
     def _archive_download(
         cls,
-        session: requests.Session,
+        session: PageSession,
         n_threads: int,
         directory: str,
         links: List[str],
@@ -1723,7 +1724,7 @@ class OpenLibraryOps:
         """Check for a directly downloadable original PDF in Archive.org metadata."""
         try:
             metadata_url = f"https://archive.org/metadata/{book_id}"
-            response = get_requests_session().get(
+            response = get_page_session().get(
                 metadata_url,
                 timeout=6,
             )
@@ -1740,7 +1741,7 @@ class OpenLibraryOps:
                         pdf_url = (
                             f"https://archive.org/download/{book_id}/{filename.replace(' ', '%20')}"
                         )
-                        check_response = get_requests_session().head(
+                        check_response = get_page_session().head(
                             pdf_url,
                             timeout=4,
                             allow_redirects=True,

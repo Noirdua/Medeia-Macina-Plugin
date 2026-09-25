@@ -19,7 +19,7 @@ import json
 import subprocess
 
 from API.HTTP import HTTPClient
-from API.requests_client import get_requests_session
+from API.HTTP import PageResponse, PageSession, get_page_session
 from PluginCore.base import Plugin, SearchResult
 
 Tidal = None
@@ -256,7 +256,7 @@ class ITunesMetadataPlugin(MetadataPlugin):
             "limit": limit
         }
         try:
-            resp = get_requests_session().get(
+            resp = get_page_session().get(
                 "https://itunes.apple.com/search",
                 params=params,
                 timeout=10
@@ -446,7 +446,7 @@ class GoogleBooksMetadataPlugin(MetadataPlugin):
             q = query_clean
 
         try:
-            resp = get_requests_session().get(
+            resp = get_page_session().get(
                 "https://www.googleapis.com/books/v1/volumes",
                 params={
                     "q": q,
@@ -580,7 +580,7 @@ class ISBNsearchMetadataPlugin(MetadataPlugin):
 
         url = f"https://isbnsearch.org/isbn/{isbn}"
         try:
-            resp = get_requests_session().get(url, timeout=10)
+            resp = get_page_session().get(url, timeout=10)
             resp.raise_for_status()
             html = str(resp.text or "")
             if not html:
@@ -1498,7 +1498,7 @@ def fetch_archive_item_metadata(archive_id: str,
     ident = str(archive_id or "").strip()
     if not ident:
         return {}
-    resp = get_requests_session().get(
+    resp = get_page_session().get(
         f"https://archive.org/metadata/{ident}",
         timeout=int(timeout),
     )
