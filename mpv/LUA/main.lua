@@ -3616,7 +3616,6 @@ local function _activate_image_controls()
     _bind_image_key('+', 'image-zoom-in-fine', function() _change_zoom(ImageControl.zoom_step_slow) end, {repeatable=true})
     _bind_image_key('_', 'image-zoom-out-fine', function() _change_zoom(-ImageControl.zoom_step_slow) end, {repeatable=true})
     _bind_image_key('0', 'image-zoom-reset', _reset_pan_zoom)
-    _bind_image_key('Space', 'image-status', function() _show_image_status('Image status') end)
     _bind_image_key('f', 'image-screenshot', _capture_screenshot)
     _install_q_block()
 end
@@ -3648,6 +3647,10 @@ local function _update_image_mode()
         _deactivate_image_controls()
     end
 end
+
+mp.observe_property('current-tracks/video/image', 'bool', function()
+    _update_image_mode()
+end)
 
 mp.register_event('file-loaded', function()
     _update_image_mode()
