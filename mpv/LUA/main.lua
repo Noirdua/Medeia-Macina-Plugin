@@ -7270,6 +7270,86 @@ function M._show_splash_background()
     end
 end
 
+local function _is_placeholder_media_title(text)
+    local value = trim(tostring(text or ''))
+    local lower = value:lower()
+    return value == '' or lower == 'medeia' or lower == 'no file' or lower == 'memory://'
+end
+
+function M._apply_real_media_title()
+    local path = mp.get_property('path') or ''
+    if path == '' or M._path_is_splash(path) then
+        return
+    end
+    local playlist = mp.get_property_native('playlist') or {}
+    local pos = (mp.get_property_number('playlist-pos') or 0) + 1
+    local item = playlist[pos]
+    local playlist_title = ''
+    if type(item) == 'table' then
+        playlist_title = trim(tostring(item.title or ''))
+    end
+    if not _is_placeholder_media_title(playlist_title) then
+        pcall(mp.set_property, 'force-media-title', playlist_title)
+        pcall(mp.set_property, 'media-title', playlist_title)
+        return
+    end
+    local forced = trim(tostring(mp.get_property('force-media-title') or ''))
+    if forced:lower() == 'medeia' then
+        pcall(mp.set_property, 'force-media-title', '')
+    end
+end
+
+local _zoom_pan_bound = false
+
+local function _pan_zoomed(dx, dy)
+    local zoom = mp.get_property_number('video-zoom') or 0
+    if math.abs(zoom) < 0.001 then
+        return false
+    end
+    local limit = math.max(0.5, math.abs(zoom))
+    local x = (mp.get_property_number('video-pan-x') or 0) + dx
+    local y = (mp.get_property_number('video-pan-y') or 0) + dy
+    if x > limit then x = limit elseif x < -limit then x = -limit end
+    if y > limit then y = limit elseif y < -limit then y = -limit end
+    mp.set_property_number('video-pan-x', x)
+    mp.set_property_number('video-pan-y', y)
+    return true
+end
+
+local function _bind_zoom_pan_key(key, dx, dy)
+    mp.add_forced_key_binding(key, 'medeia-pan-' .. key, function()
+        _pan_zoomed(dx, dy)
+    end, {repeatable = true})
+end
+
+local function _sync_zoom_pan_bindings()
+    local zoomed = math.abs(mp.get_property_number('video-zoom') or 0) >= 0.001
+    if zoomed == _zoom_pan_bound then
+        return
+    end
+    _zoom_pan_bound = zoomed
+    local keys = {
+        'WHEEL_UP', 'WHEEL_DOWN', 'WHEEL_LEFT', 'WHEEL_RIGHT',
+        'AXIS_UP', 'AXIS_DOWN', 'AXIS_LEFT', 'AXIS_RIGHT',
+    }
+    if not zoomed then
+        for _, key in ipairs(keys) do
+            pcall(mp.remove_key_binding, 'medeia-pan-' .. key)
+        end
+        return
+    end
+    _bind_zoom_pan_key('WHEEL_UP', 0, -0.05)
+    _bind_zoom_pan_key('WHEEL_DOWN', 0, 0.05)
+    _bind_zoom_pan_key('WHEEL_LEFT', -0.05, 0)
+    _bind_zoom_pan_key('WHEEL_RIGHT', 0.05, 0)
+    _bind_zoom_pan_key('AXIS_UP', 0, -0.03)
+    _bind_zoom_pan_key('AXIS_DOWN', 0, 0.03)
+    _bind_zoom_pan_key('AXIS_LEFT', -0.03, 0)
+    _bind_zoom_pan_key('AXIS_RIGHT', 0.03, 0)
+end
+
+mp.observe_property('video-zoom', 'number', _sync_zoom_pan_bindings)
+
 function M._install_splash_background()
     local splash = M._resolve_splash_path()
     if splash == '' then
@@ -7287,6 +7367,7 @@ function M._install_splash_background()
     mp.register_event('file-loaded', function()
         M._prefer_real_video_track()
         _drop_splash_playlist_entries()
+        M._apply_real_media_title()
     end)
     M._show_splash_background()
 end

@@ -1628,6 +1628,15 @@ def _get_playable_path(
 
     if title is not None and not isinstance(title, str):
         title = str(title)
+    if store and file_hash and file_hash != "unknown" and _looks_like_raw_playlist_title(title, path):
+        resolved_title = _resolve_hydrus_playlist_title(
+            str(path or ""),
+            store_name=str(store),
+            file_hash=str(file_hash),
+            config=config,
+        )
+        if resolved_title:
+            title = resolved_title
 
     if isinstance(file_hash, str):
         file_hash = file_hash.strip().lower()
@@ -1984,8 +1993,15 @@ def _queue_items(
                 _start_mpv(items[i:], config=config, start_opts=start_opts)
                 return True
             elif resp.get("error") == "success":
-                # Do not set `force-media-title` when queueing items. It's a global property and
-                # would change the MPV window title even if the item isn't currently playing.
+                if mode == "replace" and safe_title:
+                    _send_ipc_command(
+                        {
+                            "command": ["set_property", "force-media-title", safe_title],
+                            "request_id": 201,
+                        },
+                        silent=True,
+                        wait=False,
+                    )
                 debug(f"Queued: {title or target}")
             else:
                 error_msg = str(resp.get("error"))
