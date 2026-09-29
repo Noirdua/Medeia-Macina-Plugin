@@ -469,6 +469,15 @@ def download_magnet(
             log(f"Failed to read magnet status {magnet_id}: {exc}", file=sys.stderr)
             return 0, magnet_id
         ready = bool(status.get("ready")) or status.get("statusCode") == 4
+        if progress is not None and hasattr(progress, "set_status"):
+            try:
+                progress.set_status(
+                    f"AllDebrid preparing magnet {magnet_id} ({elapsed}s)"
+                    if not ready
+                    else f"AllDebrid magnet {magnet_id} ready"
+                )
+            except Exception:
+                pass
         if ready:
             break
         time.sleep(5)
@@ -967,31 +976,40 @@ class AllDebrid(TablePluginMixin, Plugin):
                                     total = None
                                 label = fname
                                 completed = 0
-                                if pipe_progress is not None:
-                                    try:
-                                        pipe_progress.begin_transfer(label=label, total=total)
-                                    except Exception:
-                                        pass
+                                bar = None
+                                try:
+                                    from SYS.models import ProgressBar
+
+                                    bar = ProgressBar()
+                                    bar.update(
+                                        downloaded=0,
+                                        total=total,
+                                        label=label,
+                                        file=sys.stderr,
+                                    )
+                                except Exception:
+                                    bar = None
                                 try:
                                     with part.open("wb") as fh:
-                                        for chunk in resp.iter_bytes():
+                                        for chunk in resp.iter_bytes(262144):
                                             if not chunk:
                                                 continue
                                             fh.write(chunk)
                                             completed += len(chunk)
-                                            if pipe_progress is not None:
+                                            if bar is not None:
                                                 try:
-                                                    pipe_progress.update_transfer(
-                                                        label=label,
-                                                        completed=completed,
+                                                    bar.update(
+                                                        downloaded=completed,
                                                         total=total,
+                                                        label=label,
+                                                        file=sys.stderr,
                                                     )
                                                 except Exception:
                                                     pass
                                 finally:
-                                    if pipe_progress is not None:
+                                    if bar is not None:
                                         try:
-                                            pipe_progress.finish_transfer(label=label)
+                                            bar.finish()
                                         except Exception:
                                             pass
                         part.replace(dest)
