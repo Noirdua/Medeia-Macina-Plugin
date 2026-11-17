@@ -235,8 +235,7 @@ class Bandcamp(Plugin):
 
         # Build a new table from artist discography.
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
         except Exception:
             return False
 
@@ -260,42 +259,13 @@ class Bandcamp(Plugin):
             print(f"bandcamp artist lookup failed: {exc}\n")
             return True
 
-        table = Table(f"Bandcamp: artist:{artist_title}")._perseverance(True)
-        table.set_table("bandcamp")
-        try:
-            table.set_value_case("preserve")
-        except Exception:
-            pass
+        table = prepare_result_table(
+            f"Bandcamp: artist:{artist_title}",
+            "bandcamp",
+            value_case="preserve",
+        )
 
-        results_payload: List[Dict[str, Any]] = []
-        for r in discography:
-            table.add_result(r)
-            try:
-                results_payload.append(r.to_dict())
-            except Exception:
-                results_payload.append(
-                    {
-                        "table": "bandcamp",
-                        "title": getattr(r,
-                                         "title",
-                                         ""),
-                        "path": getattr(r,
-                                        "path",
-                                        ""),
-                    }
-                )
-
-        try:
-            ctx.set_last_result_table(table, results_payload)
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
-
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(ctx, table, add_result_rows(table, discography, fallback_table="bandcamp"))
 
         return True
 

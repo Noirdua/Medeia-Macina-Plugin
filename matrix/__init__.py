@@ -695,9 +695,9 @@ class Matrix(TablePluginMixin, Plugin):
         """Upload a file and send it to a specific room."""
         from SYS.models import ProgressFileReader
 
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
+        from SYS.utils import require_existing_file
+
+        path = require_existing_file(file_path)
         if not room_id:
             raise Exception("Matrix room_id missing")
 
@@ -824,21 +824,9 @@ class Matrix(TablePluginMixin, Plugin):
 
         # Optional: if a PipeObject is provided and it already has store+hash,
         # attach the uploaded URL back to the stored file.
-        try:
-            pipe_obj = kwargs.get("pipe_obj")
-            if pipe_obj is not None:
-                from PluginCore.backend_registry import BackendRegistry
+        from PluginCore.backend_registry import remember_uploaded_url
 
-                # Prefer the direct media download URL for storage backends.
-                BackendRegistry(
-                    self.config,
-                    suppress_debug=True
-                ).try_add_url_for_pipe_object(
-                    pipe_obj,
-                    download_url_for_store or link,
-                )
-        except Exception:
-            pass
+        remember_uploaded_url(self.config, kwargs.get("pipe_obj"), download_url_for_store or link)
 
         return link
 

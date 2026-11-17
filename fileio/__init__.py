@@ -8,19 +8,6 @@ from PluginCore.base import Plugin
 from SYS.logger import log
 
 
-def _pick_provider_config(config: Any) -> Dict[str, Any]:
-    if not isinstance(config, dict):
-        return {}
-    plugin_cfg = config.get("plugin")
-    if not isinstance(plugin_cfg, dict):
-        return {}
-    for key in ("fileio", "file.io"):
-        entry = plugin_cfg.get(key)
-        if isinstance(entry, dict):
-            return entry
-    return {}
-
-
 def _extract_link(payload: Any) -> Optional[str]:
     if isinstance(payload, dict):
         for key in ("link", "url", "downloadLink", "download_url"):
@@ -90,17 +77,13 @@ class FileIO(Plugin):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
-        conf = _pick_provider_config(self.config)
+        conf = self.plugin_config_root()
         self._base_url = str(conf.get("base_url")
                              or "https://file.io").strip().rstrip("/")
         self._api_key = conf.get("api_key")
         self._default_expires = conf.get("expires")
-        self._default_max_downloads = conf.get("maxDownloads")
-        if self._default_max_downloads is None:
-            self._default_max_downloads = conf.get("max_downloads")
-        self._default_auto_delete = conf.get("autoDelete")
-        if self._default_auto_delete is None:
-            self._default_auto_delete = conf.get("auto_delete")
+        self._default_max_downloads = self.plugin_setting("maxDownloads", "max_downloads")
+        self._default_auto_delete = self.plugin_setting("autoDelete", "auto_delete")
 
     def validate(self) -> bool:
         return True
@@ -109,8 +92,9 @@ class FileIO(Plugin):
         from API.HTTP import HTTPClient
         from SYS.models import ProgressFileReader
 
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+        from SYS.utils import require_existing_file
+
+        require_existing_file(file_path)
 
         data: Dict[str,
                    Any] = {}
@@ -221,18 +205,9 @@ class FileIO(Plugin):
                     f"Upload succeeded but response did not include a link (response: {snippet})"
                 )
 
-            try:
-                pipe_obj = kwargs.get("pipe_obj")
-                if pipe_obj is not None:
-                    from PluginCore.backend_registry import BackendRegistry
+            from PluginCore.backend_registry import remember_uploaded_url
 
-                    BackendRegistry(
-                        self.config,
-                        suppress_debug=True
-                    ).try_add_url_for_pipe_object(pipe_obj,
-                                                  uploaded_url)
-            except Exception:
-                pass
+            remember_uploaded_url(self.config, kwargs.get("pipe_obj"), uploaded_url)
 
             return uploaded_url
 

@@ -58,12 +58,9 @@ def _resolve_out_dir(arg_outdir: Optional[Union[str, Path]]) -> Path:
 
 
 def _find_filename_from_cd(cd: str) -> Optional[str]:
-    if not cd:
-        return None
-    m = re.search(r"filename\*?=(?:UTF-8''\s*)?\"?([^\";]+)\"?", cd)
-    if m:
-        return m.group(1)
-    return None
+    from SYS.utils import filename_from_content_disposition
+
+    return filename_from_content_disposition(cd) or None
 
 
 USER_AGENT = (

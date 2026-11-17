@@ -75,15 +75,14 @@ class Hello(Plugin):
         This keeps the example self-contained (no network access required) and
         makes it straightforward to test provider behavior with `pytest`.
         """
-        try:
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
+        from SYS.utils import ensure_directory, sanitize_filename, unique_path
 
+        ensure_directory(Path(output_dir))
         title = str(getattr(result, "title", "hello") or "hello").strip()
-        safe = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in title)
-        fname = f"{safe}.txt" if safe else "hello.txt"
-        dest = Path(output_dir) / fname
+        safe = sanitize_filename(title, fallback="hello")
+        if not safe.lower().endswith(".txt"):
+            safe = f"{safe}.txt"
+        dest = unique_path(Path(output_dir) / safe)
         try:
             dest.write_text(f"Hello from Hello\nsource: {result.path}\n", encoding="utf-8")
             return dest
@@ -151,20 +150,17 @@ class Hello(Plugin):
         title = target.get("title") or f"hello-{idx}"
 
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import prepare_result_table, publish_result_table, result_payload
         except Exception:
             # If ResultTable isn't available, consider selection handled
             return True
 
-        table = Table(f"Hello Details: {title}")._perseverance(True)
-        table.set_table("hello")
-        try:
-            table.set_table_metadata({"plugin": "hello", "view": "details", "example_index": idx})
-        except Exception:
-            pass
-
-        table.set_source_command("download-file", [])
+        table = prepare_result_table(
+            f"Hello Details: {title}",
+            "hello",
+            metadata={"plugin": "hello", "view": "details", "example_index": idx},
+            source_command="download-file",
+        )
 
         results_payload: List[Dict[str, Any]] = []
         for part in ("a", "b"):
@@ -180,21 +176,8 @@ class Hello(Plugin):
                 full_metadata={"part": part, "example_index": idx},
             )
             table.add_result(sr)
-            try:
-                results_payload.append(sr.to_dict())
-            except Exception:
-                results_payload.append({"table": sr.table, "title": sr.title, "path": sr.path})
+            results_payload.append(result_payload(sr, table="hello"))
 
-        try:
-            ctx.set_last_result_table(table, results_payload)
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
-
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(ctx, table, results_payload)
 
         return True

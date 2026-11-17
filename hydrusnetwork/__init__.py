@@ -16,12 +16,9 @@ _SHA256_RE = re.compile(r"\b[a-fA-F0-9]{64}\b")
 
 
 def _normalize_hash(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    if len(text) != 64:
-        return ""
-    if any(ch not in "0123456789abcdef" for ch in text):
-        return ""
-    return text
+    from SYS.utils import normalize_sha256_hex
+
+    return normalize_sha256_hex(value) or ""
 
 
 def get_store_backend_classes() -> Dict[str, Any]:

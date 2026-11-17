@@ -516,9 +516,9 @@ class Local(Plugin):
         return ""
 
     def upload(self, file_path: str, **kwargs: Any) -> Dict[str, Any]:
-        source_path = Path(str(file_path or "")).expanduser()
-        if not source_path.exists() or not source_path.is_file():
-            raise FileNotFoundError(f"File not found: {source_path}")
+        from SYS.utils import require_existing_file
+
+        source_path = require_existing_file(file_path)
 
         pipeline_progress = kwargs.get("pipeline_progress")
 

@@ -12,26 +12,22 @@ _CONFIG_KEYS = (
 
 
 def plugin_config_entry(config: Any) -> Dict[str, Any]:
-    if not isinstance(config, dict):
-        return {}
-    plugin = config.get("plugin")
-    if not isinstance(plugin, dict):
-        plugin = {}
-    for key in _CONFIG_KEYS:
-        block = plugin.get(key)
-        if isinstance(block, dict) and block:
-            return block
+    from PluginCore.base import plugin_config_block
+
+    block = plugin_config_block(config, *_CONFIG_KEYS)
+    if block:
+        return block
     try:
         from SYS.config import get_plugin_block
     except Exception:
         return {}
     for key in _CONFIG_KEYS:
         try:
-            block = get_plugin_block(config, key)
+            found = get_plugin_block(config, key)
         except Exception:
-            block = {}
-        if isinstance(block, dict) and block:
-            return block
+            found = {}
+        if isinstance(found, dict) and found:
+            return found
     return {}
 
 

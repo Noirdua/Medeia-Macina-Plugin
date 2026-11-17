@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-import posixpath
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import quote, unquote, urlparse
 
-from SYS.utils import coerce_bool, coerce_int, sanitize_filename, unique_path
+from SYS.utils import (
+    coerce_bool,
+    coerce_int,
+    join_remote_path,
+    normalize_remote_path,
+    sanitize_filename,
+    unique_path,
+)
 
 
 def format_epoch(raw_value: Any) -> str:
@@ -18,31 +24,6 @@ def format_epoch(raw_value: Any) -> str:
         return datetime.fromtimestamp(stamp).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return str(raw_value or "")
-
-
-def normalize_remote_path(value: Any, *, default: str) -> str:
-    text = str(value or "").strip().replace("\\", "/")
-    if not text:
-        text = default
-    elif text.startswith(("scp://", "sftp://")):
-        try:
-            text = unquote(urlparse(text).path or "/")
-        except Exception:
-            text = default
-    elif not text.startswith("/"):
-        text = posixpath.join(default, text)
-
-    normalized = posixpath.normpath(text)
-    normalized = "/" + normalized.lstrip("/")
-    return normalized or "/"
-
-
-def join_remote_path(parent: Any, child: Any, base_path: str) -> str:
-    left = normalize_remote_path(parent, default=base_path)
-    right = str(child or "").strip().replace("\\", "/")
-    if not right:
-        return left
-    return normalize_remote_path(posixpath.join(left, right), default="/")
 
 
 def build_url(

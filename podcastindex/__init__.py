@@ -196,17 +196,15 @@ class PodcastIndex(Plugin):
             return True
 
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import prepare_result_table, result_payload
         except Exception:
             return True
 
-        table = Table(f"PodcastIndex Episodes: {feed_title}")._perseverance(True)
-        table.set_table("podcastindex.episodes")
-        try:
-            table.set_value_case("preserve")
-        except Exception:
-            pass
+        table = prepare_result_table(
+            f"PodcastIndex Episodes: {feed_title}",
+            "podcastindex.episodes",
+            value_case="preserve",
+        )
 
         results_payload: List[Dict[str, Any]] = []
         for ep in episodes or []:
@@ -246,19 +244,11 @@ class PodcastIndex(Plugin):
             )
 
             table.add_result(sr)
-            results_payload.append(sr.to_dict())
+            results_payload.append(result_payload(sr, table="podcastindex.episodes"))
 
-        try:
-            ctx.set_last_result_table(table, results_payload)
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
+        from SYS.rich_display import publish_result_table
 
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(ctx, table, results_payload)
 
         return True
 

@@ -2231,12 +2231,14 @@ def download_hydrus_file(
 
 
 def _normalize_hash(value: Any) -> str:
-    candidate = str(value or "").strip().lower()
-    if not candidate:
+    from SYS.utils import normalize_sha256_hex
+
+    candidate = normalize_sha256_hex(value)
+    if candidate:
+        return candidate
+    if not str(value or "").strip():
         raise ValueError("Hydrus hash is required")
-    if len(candidate) != 64 or any(ch not in "0123456789abcdef" for ch in candidate):
-        raise ValueError("Hydrus hash must be a 64-character hex string")
-    return candidate
+    raise ValueError("Hydrus hash must be a 64-character hex string")
 
 
 def _normalize_tag(tag: Any) -> Optional[str]:

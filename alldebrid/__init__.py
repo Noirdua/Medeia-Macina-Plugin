@@ -1961,45 +1961,19 @@ class AllDebrid(TablePluginMixin, Plugin):
             return True
 
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
         except Exception:
             return True
 
-        table = Table(f"AllDebrid Files: {title}")._perseverance(True)
-        table.set_table("alldebrid")
-        try:
-            table.set_table_metadata({"plugin": "alldebrid", "view": "files", "magnet_id": magnet_id})
-        except Exception:
-            pass
-        table.set_source_command("search-file", ["-plugin", "alldebrid", f"id={magnet_id}"])
+        table = prepare_result_table(
+            f"AllDebrid Files: {title}",
+            "alldebrid",
+            metadata={"plugin": "alldebrid", "view": "files", "magnet_id": magnet_id},
+            source_command="search-file",
+            source_args=["-plugin", "alldebrid", f"id={magnet_id}"],
+        )
 
-        results_payload: List[Dict[str, Any]] = []
-        for r in files or []:
-            table.add_result(r)
-            try:
-                results_payload.append(r.to_dict())
-            except Exception:
-                results_payload.append(
-                    {
-                        "table": getattr(r, "table", "alldebrid"),
-                        "title": getattr(r, "title", ""),
-                        "path": getattr(r, "path", ""),
-                        "full_metadata": getattr(r, "full_metadata", None),
-                    }
-                )
-
-        try:
-            ctx.set_last_result_table(table, results_payload)
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
-
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(ctx, table, add_result_rows(table, files or [], fallback_table="alldebrid"))
 
         return True
 

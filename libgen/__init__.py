@@ -1948,18 +1948,14 @@ def _guess_filename_extension(download_url: str,
                               headers: Dict[str,
                                             str]) -> Optional[str]:
     """Guess the file extension from headers or the download URL."""
+    from SYS.utils import filename_from_content_disposition
+
     content_disposition = headers.get("content-disposition", "")
-    if content_disposition:
-        match = re.search(
-            r"filename\*?=(?:UTF-8\'\'|\"?)([^\";]+)",
-            content_disposition,
-            flags=re.IGNORECASE
-        )
-        if match:
-            filename = unquote(match.group(1).strip('"'))
-            suffix = Path(filename).suffix
-            if suffix:
-                return suffix.lstrip(".")
+    filename = filename_from_content_disposition(content_disposition)
+    if filename:
+        suffix = Path(filename).suffix
+        if suffix:
+            return suffix.lstrip(".")
 
     parsed = urlparse(download_url)
     suffix = Path(parsed.path).suffix

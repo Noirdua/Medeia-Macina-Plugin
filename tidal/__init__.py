@@ -210,7 +210,7 @@ class Tidal(Plugin):
         super().__init__(config)
         self.api_urls = self._resolve_api_urls()
         try:
-            self.api_timeout = float(self.config.get("timeout", 10.0))
+            self.api_timeout = float(self.plugin_setting("timeout", default=10.0) or 10.0)
         except Exception:
             self.api_timeout = 10.0
         self.api_clients = [TidalApi(base_url=url, timeout=self.api_timeout) for url in self.api_urls]
@@ -942,8 +942,7 @@ class Tidal(Plugin):
             return
 
         try:
-            from SYS.rich_display import stdout_console
-            from SYS.result_table import Table
+            from SYS.rich_display import prepare_result_table
         except Exception:
             return
 
@@ -951,43 +950,25 @@ class Tidal(Plugin):
         if artist_name:
             label = f"{artist_name} - {label}"
 
-        table = Table(f"Tidal Tracks: {label}")._perseverance(True)
-        table.set_table("tidal.track")
-        try:
-            table.set_table_metadata(
-                {
-                    "plugin": "tidal",
-                    "view": "track",
-                    "album_id": album_id,
-                    "album_title": album_title,
-                    "artist_name": artist_name,
-                }
-            )
-        except Exception:
-            pass
+        table = prepare_result_table(
+            f"Tidal Tracks: {label}",
+            "tidal.track",
+            metadata={
+                "plugin": "tidal",
+                "view": "track",
+                "album_id": album_id,
+                "album_title": album_title,
+                "artist_name": artist_name,
+            },
+        )
 
-        results_payload: List[Dict[str, Any]] = []
-        for result in track_results:
-            table.add_result(result)
-            try:
-                results_payload.append(result.to_dict())
-            except Exception:
-                results_payload.append(
-                    {
-                        "table": getattr(result, "table", "tidal.track"),
-                        "title": getattr(result, "title", ""),
-                        "path": getattr(result, "path", ""),
-                    }
-                )
+        from SYS.rich_display import add_result_rows, publish_result_table
 
-        pipeline_context.set_last_result_table(table, results_payload)
-        pipeline_context.set_current_stage_table(table)
-
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(
+            pipeline_context,
+            table,
+            add_result_rows(table, track_results, fallback_table="tidal.track"),
+        )
 
     def _album_item_to_result(self, album: Dict[str, Any], *, artist_name: str) -> Optional[SearchResult]:
         if not isinstance(album, dict):
@@ -1788,9 +1769,7 @@ class Tidal(Plugin):
 
     def _resolve_api_urls(self) -> List[str]:
         urls: List[str] = []
-        raw = self.config.get("api_urls")
-        if raw is None:
-            raw = self.config.get("api_url")
+        raw = self.plugin_setting("api_urls", "api_url")
         if isinstance(raw, (list, tuple)):
             urls.extend(str(item).strip() for item in raw if isinstance(item, str))
         elif isinstance(raw, str):
@@ -2225,44 +2204,25 @@ class Tidal(Plugin):
                 return True
 
             try:
-                from SYS.rich_display import stdout_console
-                from SYS.result_table import Table
+                from SYS.rich_display import prepare_result_table
             except Exception:
                 return False
 
-            table = Table(f"Tidal Albums: {artist_name}")._perseverance(False)
-            table.set_table("tidal.album")
-            try:
-                table.set_table_metadata({"plugin": "tidal", "view": "album", "artist_id": artist_id, "artist_name": artist_name})
-            except Exception:
-                pass
+            table = prepare_result_table(
+                f"Tidal Albums: {artist_name}",
+                "tidal.album",
+                perseverance=False,
+                metadata={"plugin": "tidal", "view": "album", "artist_id": artist_id, "artist_name": artist_name},
+            )
 
-            results_payload: List[Dict[str, Any]] = []
-            for res in album_results:
-                table.add_result(res)
-                try:
-                    results_payload.append(res.to_dict())
-                except Exception:
-                    results_payload.append({"table": "tidal", "title": getattr(res, "title", ""), "path": getattr(res, "path", "")})
+            from SYS.rich_display import add_result_rows, publish_result_table
 
-            try:
-                ctx.set_last_result_table(table, results_payload)
-                ctx.set_current_stage_table(table)
-            except Exception:
-                pass
-
-            try:
-                suppress = bool(getattr(ctx, "_suppress_provider_selector_print", False))
-            except Exception:
-                suppress = False
-
-            if not suppress:
-                try:
-                    stdout_console().print()
-                    stdout_console().print(table)
-                except Exception:
-                    pass
-
+            publish_result_table(
+                ctx,
+                table,
+                add_result_rows(table, album_results, fallback_table="tidal"),
+                honor_suppress=True,
+            )
             return True
 
         # Album selection: selecting @N should open the track list for that album.
@@ -2281,8 +2241,7 @@ class Tidal(Plugin):
                 return False
 
             try:
-                from SYS.rich_display import stdout_console
-                from SYS.result_table import Table
+                from SYS.rich_display import prepare_result_table
             except Exception:
                 return False
 
@@ -2290,47 +2249,26 @@ class Tidal(Plugin):
             if artist_name:
                 label = f"{artist_name} - {album_title}"
             # Preserve album order (disc/track) rather than sorting by title.
-            table = Table(f"Tidal Tracks: {label}")._perseverance(True)
-            table.set_table("tidal.track")
-            try:
-                table.set_table_metadata(
-                    {
-                        "plugin": "tidal",
-                        "view": "track",
-                        "album_id": album_id,
-                        "album_title": album_title,
-                        "artist_name": artist_name,
-                    }
-                )
-            except Exception:
-                pass
+            table = prepare_result_table(
+                f"Tidal Tracks: {label}",
+                "tidal.track",
+                metadata={
+                    "plugin": "tidal",
+                    "view": "track",
+                    "album_id": album_id,
+                    "album_title": album_title,
+                    "artist_name": artist_name,
+                },
+            )
 
-            results_payload: List[Dict[str, Any]] = []
-            for res in track_results:
-                table.add_result(res)
-                try:
-                    results_payload.append(res.to_dict())
-                except Exception:
-                    results_payload.append({"table": "tidal", "title": getattr(res, "title", ""), "path": getattr(res, "path", "")})
+            from SYS.rich_display import add_result_rows, publish_result_table
 
-            try:
-                ctx.set_last_result_table(table, results_payload)
-                ctx.set_current_stage_table(table)
-            except Exception:
-                pass
-
-            try:
-                suppress = bool(getattr(ctx, "_suppress_provider_selector_print", False))
-            except Exception:
-                suppress = False
-
-            if not suppress:
-                try:
-                    stdout_console().print()
-                    stdout_console().print(table)
-                except Exception:
-                    pass
-
+            publish_result_table(
+                ctx,
+                table,
+                add_result_rows(table, track_results, fallback_table="tidal"),
+                honor_suppress=True,
+            )
             return True
 
         # Optimization: If we are selecting tracks, do NOT force a "Detail View" (resolving manifest) here.
@@ -2357,17 +2295,15 @@ class Tidal(Plugin):
             return False
 
         try:
-            from SYS.rich_display import stdout_console
-            from SYS.result_table import Table
+            from SYS.rich_display import prepare_result_table, result_payload
         except Exception:
             return False
 
-        table = Table("Tidal Track")._perseverance(True)
-        table.set_table("tidal.track")
-        try:
-            table.set_table_metadata({"plugin": "tidal", "view": "track", "resolved_manifest": True})
-        except Exception:
-            pass
+        table = prepare_result_table(
+            "Tidal Track",
+            "tidal.track",
+            metadata={"plugin": "tidal", "view": "track", "resolved_manifest": True},
+        )
         results_payload: List[Dict[str, Any]] = []
         for track_id, title, path, detail in track_details:
             resolved_path = f"tidal://track/{track_id}"
@@ -2407,26 +2343,11 @@ class Tidal(Plugin):
                 except Exception:
                     pass
             table.add_result(result)
-            try:
-                results_payload.append(result.to_dict())
-            except Exception:
-                results_payload.append({
-                    "table": "tidal.track",
-                    "title": result.title,
-                    "path": result.path,
-                })
+            results_payload.append(result_payload(result, table="tidal.track"))
 
-        try:
-            ctx.set_last_result_table(table, results_payload)
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
+        from SYS.rich_display import publish_result_table
 
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(ctx, table, results_payload)
 
         return True
 

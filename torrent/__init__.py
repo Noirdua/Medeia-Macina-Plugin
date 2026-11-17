@@ -564,17 +564,15 @@ class Torrent(Plugin):
             return False
         files = engine.list_files(job_id) if job is not None else []
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import prepare_result_table, publish_result_table
         except Exception:
             return True
         title = str((job.title if job is not None else None) or (item.get("title") if isinstance(item, dict) else "") or job_id)
-        table = Table(f"Torrent files: {title}")._perseverance(True)
-        table.set_table("torrent.files")
-        try:
-            table.set_table_metadata({"plugin": "torrent", "view": "files", "job_id": job_id})
-        except Exception:
-            pass
+        table = prepare_result_table(
+            f"Torrent files: {title}",
+            "torrent.files",
+            metadata={"plugin": "torrent", "view": "files", "job_id": job_id},
+        )
         payloads: List[Dict[str, Any]] = []
         if not files:
             files = [
@@ -601,20 +599,12 @@ class Torrent(Plugin):
             }
             table.add_result(payload)
             payloads.append(payload)
-        try:
-            ctx.set_last_result_table(
-                table,
-                payloads,
-                subject={"plugin": "torrent", "job_id": job_id, "view": "files"},
-            )
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(
+            ctx,
+            table,
+            payloads,
+            subject={"plugin": "torrent", "job_id": job_id, "view": "files"},
+        )
         return True
 
     def _downloader_mode(self) -> str:

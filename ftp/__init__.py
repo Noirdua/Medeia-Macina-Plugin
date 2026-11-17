@@ -12,7 +12,15 @@ from urllib.parse import quote, unquote, urlparse
 
 from PluginCore.base import Plugin, SearchResult, parse_inline_query_arguments
 from SYS.metadata import build_sidecar_payloads, is_sidecar_filename, parse_sidecar_text
-from SYS.utils import coerce_bool as _coerce_bool, coerce_int as _coerce_int, format_byte_size, sanitize_filename, unique_path as _unique_path
+from SYS.utils import (
+    coerce_bool as _coerce_bool,
+    coerce_int as _coerce_int,
+    format_byte_size,
+    join_remote_path,
+    normalize_remote_path,
+    sanitize_filename,
+    unique_path as _unique_path,
+)
 
 
 def _format_timestamp(raw_value: Any) -> str:
@@ -314,46 +322,35 @@ class FTP(Plugin):
             self._close(ftp)
 
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
         except Exception:
             return True
 
         title = target_title or target_path
-        table = Table(f"FTP{f'[{instance_name}]' if instance_name else ''}: {title}")._perseverance(True)
-        table.set_table("ftp")
-        try:
-            table.set_table_metadata({
+        source_args = ["-plugin", "ftp"]
+        if instance_name:
+            source_args.extend(["-instance", instance_name])
+        source_args.extend([f"path:{target_path}", "*"])
+        table = prepare_result_table(
+            f"FTP{f'[{instance_name}]' if instance_name else ''}: {title}",
+            "ftp",
+            metadata={
                 "plugin": "ftp",
                 "instance": instance_name or None,
                 "host": settings.get("host"),
                 "path": target_path,
                 "view": "directory",
-            })
-        except Exception:
-            pass
-        source_args = ["-plugin", "ftp"]
-        if instance_name:
-            source_args.extend(["-instance", instance_name])
-        source_args.extend([f"path:{target_path}", "*"])
-        table.set_source_command("search-file", source_args)
+            },
+            source_command="search-file",
+            source_args=source_args,
+        )
 
-        payloads: List[Dict[str, Any]] = []
-        for row in rows:
-            table.add_result(row)
-            payloads.append(row.to_dict())
-
-        try:
-            ctx.set_last_result_table(table, payloads, subject={"plugin": "ftp", "instance": instance_name or None, "path": target_path})
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
-
-        try:
-            stdout_console().print()
-            stdout_console().print(table)
-        except Exception:
-            pass
+        publish_result_table(
+            ctx,
+            table,
+            add_result_rows(table, rows, fallback_table="ftp"),
+            subject={"plugin": "ftp", "instance": instance_name or None, "path": target_path},
+        )
 
         return True
 
@@ -510,9 +507,9 @@ class FTP(Plugin):
         return downloaded, None, temp_dir
 
     def upload(self, file_path: str, **kwargs: Any) -> str:
-        local_path = Path(str(file_path or "")).expanduser()
-        if not local_path.exists() or not local_path.is_file():
-            raise FileNotFoundError(f"File not found: {local_path}")
+        from SYS.utils import require_existing_file
+
+        local_path = require_existing_file(file_path)
 
         pipe_obj = kwargs.get("pipe_obj")
 
@@ -731,27 +728,10 @@ class FTP(Plugin):
                 pass
 
     def _normalize_remote_path(self, value: Any, *, default: str) -> str:
-        text = str(value or "").strip().replace("\\", "/")
-        if not text:
-            text = default
-        elif text.startswith(("ftp://", "ftps://")):
-            try:
-                text = unquote(urlparse(text).path or "/")
-            except Exception:
-                text = default
-        elif not text.startswith("/"):
-            text = posixpath.join(default, text)
-
-        normalized = posixpath.normpath(text)
-        normalized = "/" + normalized.lstrip("/")
-        return normalized or "/"
+        return normalize_remote_path(value, default=default)
 
     def _join_remote_path(self, parent: Any, child: Any) -> str:
-        left = self._normalize_remote_path(parent, default=self._base_path)
-        right = str(child or "").strip().replace("\\", "/")
-        if not right:
-            return left
-        return self._normalize_remote_path(posixpath.join(left, right), default="/")
+        return join_remote_path(parent, child, self._base_path)
 
     def _build_url(
         self,

@@ -97,7 +97,7 @@ def maybe_show_formats_table(
     )
 
     try:
-        from SYS.result_table import Table
+        from SYS.rich_display import prepare_result_table
         from SYS import pipeline as pipeline_context
     except Exception as exc:
         log(f"download-file: ResultTable unavailable: {exc}", file=sys.stderr)
@@ -108,9 +108,12 @@ def maybe_show_formats_table(
     if out_arg:
         base_args.extend(["-path", str(out_arg)])
 
-    table = Table(table_title)._perseverance(True)
-    table.set_table("internetarchive.format")
-    table.set_source_command("download-file", base_args)
+    table = prepare_result_table(
+        table_title,
+        "internetarchive.format",
+        source_command="download-file",
+        source_args=base_args,
+    )
 
     rows: List[Dict[str, Any]] = []
     for f in files:
@@ -196,12 +199,11 @@ def _filename_from_response(url: str, response: PageResponse, suggested_filename
     except Exception:
         content_disposition = ""
 
-    if content_disposition:
-        m = re.search(r'filename\*?=(?:"([^"]+)"|([^;\s]+))', content_disposition)
-        if m:
-            candidate = (m.group(1) or m.group(2) or "").strip().strip('"')
-            if candidate:
-                return sanitize_filename(unquote(candidate))
+    from SYS.utils import filename_from_content_disposition
+
+    extracted_name = filename_from_content_disposition(content_disposition)
+    if extracted_name:
+        return sanitize_filename(extracted_name)
 
     extracted = _extract_download_filename_from_url(url)
     if extracted:
@@ -1150,9 +1152,9 @@ class InternetArchiveOps:
         if not callable(upload_fn):
             raise Exception("internetarchive.upload is not available")
 
-        p = Path(str(file_path))
-        if not p.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
+        from SYS.utils import require_existing_file
+
+        p = require_existing_file(file_path)
 
         pipe_obj = kwargs.get("pipe_obj")
 
@@ -1250,16 +1252,8 @@ class InternetArchiveOps:
 
         item_url = f"https://archive.org/details/{identifier}"
 
-        try:
-            if pipe_obj is not None:
-                from PluginCore.backend_registry import BackendRegistry
+        from PluginCore.backend_registry import remember_uploaded_url
 
-                BackendRegistry(
-                    self.config,
-                    suppress_debug=True
-                ).try_add_url_for_pipe_object(pipe_obj,
-                                              item_url)
-        except Exception:
-            pass
+        remember_uploaded_url(self.config, pipe_obj, item_url)
 
         return item_url

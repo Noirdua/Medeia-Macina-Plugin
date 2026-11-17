@@ -22,8 +22,9 @@ class ZeroXZero(Plugin):
         from API.HTTP import HTTPClient
         from SYS.models import ProgressFileReader
 
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+        from SYS.utils import require_existing_file
+
+        require_existing_file(file_path)
 
         try:
             headers = {
@@ -49,18 +50,9 @@ class ZeroXZero(Plugin):
 
                 if response.status_code == 200:
                     uploaded_url = response.text.strip()
-                    try:
-                        pipe_obj = kwargs.get("pipe_obj")
-                        if pipe_obj is not None:
-                            from PluginCore.backend_registry import BackendRegistry
+                    from PluginCore.backend_registry import remember_uploaded_url
 
-                            BackendRegistry(
-                                self.config,
-                                suppress_debug=True
-                            ).try_add_url_for_pipe_object(pipe_obj,
-                                                          uploaded_url)
-                    except Exception:
-                        pass
+                    remember_uploaded_url(self.config, kwargs.get("pipe_obj"), uploaded_url)
 
                     return uploaded_url
 

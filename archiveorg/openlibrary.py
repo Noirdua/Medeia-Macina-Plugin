@@ -1144,41 +1144,24 @@ class OpenLibraryOps:
             return True
 
         try:
-            from SYS.result_table import Table
-            from SYS.rich_display import stdout_console
+            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
         except Exception:
             return True
 
         title = str(chosen_payload.get("title") or "OpenLibrary").strip() or "OpenLibrary"
-        table = Table(f"OpenLibrary Editions: {title}")._perseverance(True)
-        table.set_table("openlibrary.edition")
-        try:
-            table.set_table_metadata({"plugin": "openlibrary", "view": "borrowable_editions"})
-        except Exception:
-            pass
-        table.set_source_command("search-file", ["-plugin", "archive.org"])
+        table = prepare_result_table(
+            f"OpenLibrary Editions: {title}",
+            "openlibrary.edition",
+            metadata={"plugin": "openlibrary", "view": "borrowable_editions"},
+            source_command="search-file",
+            source_args=["-plugin", "archive.org"],
+        )
 
-        results_payload: List[Dict[str, Any]] = []
-        for edition in editions:
-            table.add_result(edition)
-            try:
-                results_payload.append(edition.to_dict())
-            except Exception:
-                results_payload.append({
-                    "table": getattr(edition, "table", "openlibrary.edition"),
-                    "title": getattr(edition, "title", ""),
-                    "path": getattr(edition, "path", ""),
-                    "full_metadata": getattr(edition, "full_metadata", None),
-                })
-
-        try:
-            ctx.set_last_result_table(table, results_payload)
-            ctx.set_current_stage_table(table)
-        except Exception:
-            pass
-
-        stdout_console().print()
-        stdout_console().print(table)
+        publish_result_table(
+            ctx,
+            table,
+            add_result_rows(table, editions, fallback_table="openlibrary.edition"),
+        )
         return True
 
     def search_result_from_url(self, url: str) -> Optional[SearchResult]:

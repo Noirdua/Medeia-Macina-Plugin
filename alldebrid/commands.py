@@ -52,11 +52,9 @@ def _extract_link(result: Any, args: Sequence[str]) -> Optional[str]:
 
 
 def _filename_from_url(url: str) -> str:
-    try:
-        name = unquote(urlparse(url).path.rsplit("/", 1)[-1])
-    except Exception:
-        name = ""
-    return name or url
+    from SYS.utils import filename_from_url
+
+    return filename_from_url(url) or url
 
 
 def _run(result: Any, args: Sequence[str], config: Dict[str, Any]) -> int:

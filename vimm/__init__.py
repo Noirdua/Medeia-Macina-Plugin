@@ -20,6 +20,7 @@ from PluginCore.base import Plugin, SearchResult, parse_inline_query_arguments
 from PluginCore.inline_utils import resolve_filter
 from SYS.logger import debug, debug_panel
 from SYS.plugin_helpers import TablePluginMixin
+from SYS.rich_display import result_payload
 from SYS.utils import sanitize_filename, unique_path
 
 
@@ -694,7 +695,7 @@ class Vimm(TablePluginMixin, Plugin):
                     found = None
                     for it in items:
                         try:
-                            it_d = it if isinstance(it, dict) else (it.to_dict() if hasattr(it, "to_dict") else {})
+                            it_d = result_payload(it)
                             fm2 = (it_d.get("full_metadata") or {}) if isinstance(it_d, dict) else {}
                             dl_cand = (fm2.get("download_url") or fm2.get("dl_action") or it_d.get("path"))
                             if target_media:
@@ -760,12 +761,10 @@ class Vimm(TablePluginMixin, Plugin):
                     return None
 
                 content = getattr(resp, "content", b"") or b""
+                from SYS.utils import filename_from_content_disposition
+
                 cd = getattr(resp, "headers", {}).get("content-disposition", "") if hasattr(resp, "headers") else ""
-                m = re.search(r'filename\*?=(?:"([^"]*)"|([^;\s]*))', cd)
-                if m:
-                    fname = m.group(1) or m.group(2)
-                else:
-                    fname = filename_hint
+                fname = filename_from_content_disposition(cd) or filename_hint
 
                 out_path = unique_path(out_dir / sanitize_filename(fname or filename_hint or "download"))
                 out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -816,7 +815,7 @@ class Vimm(TablePluginMixin, Plugin):
     def download(self, result: Any, output_dir: Path, progress_callback: Optional[Any] = None) -> Optional[Path]:
         """Download an item identified on a Vimm detail page."""
 
-        payload = result.to_dict() if hasattr(result, "to_dict") else (result if isinstance(result, dict) else {})
+        payload = result_payload(result)
         downloaded = self._download_from_payload(payload, output_dir)
         if downloaded:
             return downloaded
@@ -826,7 +825,7 @@ class Vimm(TablePluginMixin, Plugin):
             return None
 
         for row in self._fetch_detail_rows(detail_url):
-            detail_payload = row.to_dict() if hasattr(row, "to_dict") else (row if isinstance(row, dict) else {})
+            detail_payload = result_payload(row)
             downloaded = self._download_from_payload(detail_payload, output_dir)
             if downloaded:
                 return downloaded
