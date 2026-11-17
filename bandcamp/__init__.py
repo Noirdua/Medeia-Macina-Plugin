@@ -163,43 +163,12 @@ class Bandcamp(Plugin):
         if not stage_is_last:
             return False
 
-        # Playwright is required; proceed to handle artist selection
+        from SYS.rich_display import result_payload
 
         # Only handle artist selections.
         chosen: List[Dict[str, Any]] = []
         for item in selected_items or []:
-            payload: Dict[str,
-                          Any] = {}
-            if isinstance(item, dict):
-                payload = item
-            else:
-                try:
-                    if hasattr(item, "to_dict"):
-                        payload = item.to_dict()  # type: ignore[assignment]
-                except Exception:
-                    payload = {}
-                if not payload:
-                    try:
-                        payload = {
-                            "title": getattr(item,
-                                             "title",
-                                             None),
-                            "url": getattr(item,
-                                           "url",
-                                           None),
-                            "path": getattr(item,
-                                            "path",
-                                            None),
-                            "metadata": getattr(item,
-                                                "metadata",
-                                                None),
-                            "extra": getattr(item,
-                                             "extra",
-                                             None),
-                        }
-                    except Exception:
-                        payload = {}
-
+            payload = result_payload(item)
             meta = payload.get("metadata") or payload.get("full_metadata") or {}
             if not isinstance(meta, dict):
                 meta = {}
@@ -235,7 +204,7 @@ class Bandcamp(Plugin):
 
         # Build a new table from artist discography.
         try:
-            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
+            from SYS.rich_display import add_result_rows, prepare_result_table, present_selector_table, result_payload
         except Exception:
             return False
 
@@ -265,7 +234,7 @@ class Bandcamp(Plugin):
             value_case="preserve",
         )
 
-        publish_result_table(ctx, table, add_result_rows(table, discography, fallback_table="bandcamp"))
+        present_selector_table(ctx, table, add_result_rows(table, discography, fallback_table="bandcamp"))
 
         return True
 

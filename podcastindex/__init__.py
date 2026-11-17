@@ -246,9 +246,9 @@ class PodcastIndex(Plugin):
             table.add_result(sr)
             results_payload.append(result_payload(sr, table="podcastindex.episodes"))
 
-        from SYS.rich_display import publish_result_table
+        from SYS.rich_display import present_selector_table
 
-        publish_result_table(ctx, table, results_payload)
+        present_selector_table(ctx, table, results_payload)
 
         return True
 

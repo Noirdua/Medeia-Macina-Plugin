@@ -1192,7 +1192,7 @@ class ytdlp(TablePluginMixin, Plugin):
 
         if progress is None:
             try:
-                progress = self.config.get("_pipeline_progress") if isinstance(self.config, dict) else None
+                progress = self.runtime_value("_pipeline_progress")
             except Exception:
                 progress = None
         if progress is None:
@@ -1606,7 +1606,7 @@ class ytdlp(TablePluginMixin, Plugin):
 
         quiet_download = False
         try:
-            quiet_download = bool((self.config or {}).get("_quiet_background_output"))
+            quiet_download = bool(self.runtime_value("_quiet_background_output", False))
         except Exception:
             quiet_download = False
 

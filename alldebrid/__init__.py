@@ -548,14 +548,12 @@ def expand_folder_item(
     get_plugin: Optional[Callable[[str, Dict[str, Any]], Any]],
     config: Dict[str, Any],
 ) -> Tuple[List[Any], Optional[str]]:
-    table = getattr(item, "table", None) if not isinstance(item, dict) else item.get("table")
-    media_kind = getattr(item, "media_kind", None) if not isinstance(item, dict) else item.get("media_kind")
-    full_metadata = getattr(item, "full_metadata", None) if not isinstance(item, dict) else item.get("full_metadata")
-    target = None
-    if isinstance(item, dict):
-        target = item.get("path") or item.get("url")
-    else:
-        target = getattr(item, "path", None) or getattr(item, "url", None)
+    from SYS.item_accessors import get_field
+
+    table = get_field(item, "table")
+    media_kind = get_field(item, "media_kind")
+    full_metadata = get_field(item, "full_metadata")
+    target = get_field(item, "path") or get_field(item, "url")
 
     if (str(table or "").lower() != "alldebrid") or (str(media_kind or "").lower() != "folder"):
         return [], None
@@ -603,7 +601,9 @@ def adjust_output_dir_for_alldebrid(
     magnet_name = md.get("magnet_name") or md.get("folder")
     if not magnet_name:
         try:
-            detail_val = getattr(item, "detail", None) if not isinstance(item, dict) else item.get("detail")
+            from SYS.item_accessors import get_field
+
+            detail_val = get_field(item, "detail")
             magnet_name = str(detail_val or "").strip() or None
         except Exception:
             magnet_name = None
@@ -924,7 +924,7 @@ class AllDebrid(TablePluginMixin, Plugin):
             suggested_name = suggested if suggested else None
 
             # Quiet mode when download-file is mid-pipeline.
-            quiet = bool(self.config.get("_quiet_background_output")) if isinstance(self.config, dict) else False
+            quiet = bool(self.runtime_value("_quiet_background_output", False))
 
             def _html_guard(path: Path) -> bool:
                 try:
@@ -950,7 +950,7 @@ class AllDebrid(TablePluginMixin, Plugin):
                     part: Optional[Path] = None
                     try:
                         if isinstance(self.config, dict):
-                            pipe_progress = self.config.get("_pipeline_progress")
+                            pipe_progress = self.runtime_value("_pipeline_progress")
                     except Exception:
                         pipe_progress = None
                     try:
@@ -961,8 +961,9 @@ class AllDebrid(TablePluginMixin, Plugin):
                             fname = "download"
                         if not Path(fname).suffix:
                             fname = f"{fname}.bin"
-                        dest = unique_path(Path(output_dir) / fname)
-                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        from SYS.utils import reserve_download_path
+
+                        dest = reserve_download_path(output_dir, fname)
                         part = dest.with_name(dest.name + ".part")
                         with HTTPClient(timeout=30.0) as client:
                             with client._request_stream("GET", unlocked_url, follow_redirects=True) as resp:
@@ -1027,7 +1028,7 @@ class AllDebrid(TablePluginMixin, Plugin):
                 pipe_progress = None
                 try:
                     if isinstance(self.config, dict):
-                        pipe_progress = self.config.get("_pipeline_progress")
+                        pipe_progress = self.runtime_value("_pipeline_progress")
                 except Exception:
                     pipe_progress = None
 
@@ -1893,33 +1894,11 @@ class AllDebrid(TablePluginMixin, Plugin):
         if not stage_is_last:
             return False
 
-        def _as_payload(item: Any) -> Dict[str, Any]:
-            if isinstance(item, dict):
-                return dict(item)
-            try:
-                if hasattr(item, "to_dict"):
-                    maybe = item.to_dict()  # type: ignore[attr-defined]
-                    if isinstance(maybe, dict):
-                        return maybe
-            except Exception:
-                pass
-            payload: Dict[str, Any] = {}
-            try:
-                payload = {
-                    "title": getattr(item, "title", None),
-                    "path": getattr(item, "path", None),
-                    "table": getattr(item, "table", None),
-                    "annotations": getattr(item, "annotations", None),
-                    "media_kind": getattr(item, "media_kind", None),
-                    "full_metadata": getattr(item, "full_metadata", None),
-                }
-            except Exception:
-                payload = {}
-            return payload
+        from SYS.rich_display import result_payload
 
         chosen: List[Dict[str, Any]] = []
         for item in selected_items or []:
-            payload = _as_payload(item)
+            payload = result_payload(item)
             meta = payload.get("full_metadata") or payload.get("metadata") or {}
             if not isinstance(meta, dict):
                 meta = {}
@@ -1961,7 +1940,7 @@ class AllDebrid(TablePluginMixin, Plugin):
             return True
 
         try:
-            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
+            from SYS.rich_display import add_result_rows, prepare_result_table, present_selector_table
         except Exception:
             return True
 
@@ -1973,7 +1952,7 @@ class AllDebrid(TablePluginMixin, Plugin):
             source_args=["-plugin", "alldebrid", f"id={magnet_id}"],
         )
 
-        publish_result_table(ctx, table, add_result_rows(table, files or [], fallback_table="alldebrid"))
+        present_selector_table(ctx, table, add_result_rows(table, files or [], fallback_table="alldebrid"))
 
         return True
 

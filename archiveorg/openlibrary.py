@@ -809,27 +809,9 @@ class OpenLibraryOps:
 
     @staticmethod
     def _selection_payload(item: Any) -> Dict[str, Any]:
-        if isinstance(item, dict):
-            return dict(item)
-        try:
-            if hasattr(item, "to_dict"):
-                payload = item.to_dict()  # type: ignore[attr-defined]
-                if isinstance(payload, dict):
-                    return payload
-        except Exception:
-            pass
-        try:
-            return {
-                "table": getattr(item, "table", None),
-                "title": getattr(item, "title", None),
-                "path": getattr(item, "path", None),
-                "detail": getattr(item, "detail", None),
-                "annotations": getattr(item, "annotations", None),
-                "media_kind": getattr(item, "media_kind", None),
-                "full_metadata": getattr(item, "full_metadata", None),
-            }
-        except Exception:
-            return {}
+        from SYS.rich_display import result_payload
+
+        return result_payload(item)
 
     def _build_borrowable_edition_results(self, payload: Dict[str, Any]) -> List[SearchResult]:
         meta = payload.get("full_metadata") or payload.get("metadata") or {}
@@ -1144,7 +1126,7 @@ class OpenLibraryOps:
             return True
 
         try:
-            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
+            from SYS.rich_display import add_result_rows, prepare_result_table, present_selector_table
         except Exception:
             return True
 
@@ -1157,7 +1139,7 @@ class OpenLibraryOps:
             source_args=["-plugin", "archive.org"],
         )
 
-        publish_result_table(
+        present_selector_table(
             ctx,
             table,
             add_result_rows(table, editions, fallback_table="openlibrary.edition"),
@@ -1238,7 +1220,7 @@ class OpenLibraryOps:
 
         progress_callback = None
         if isinstance(self.config, dict):
-            pipeline_progress = self.config.get("_pipeline_progress")
+            pipeline_progress = self.runtime_value("_pipeline_progress")
             if pipeline_progress is not None:
                 label = ""
                 for source in (
@@ -2115,7 +2097,7 @@ class OpenLibraryOps:
 
         internal_progress_finish = None
         if progress_callback is None and isinstance(self.config, dict):
-            pipeline_progress = self.config.get("_pipeline_progress")
+            pipeline_progress = self.runtime_value("_pipeline_progress")
             if pipeline_progress is not None:
                 progress_callback = _build_pipeline_progress_callback(pipeline_progress, safe_title)
                 internal_progress_finish = getattr(progress_callback, "_finish_transfer", None)

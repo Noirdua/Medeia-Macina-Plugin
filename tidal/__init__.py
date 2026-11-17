@@ -513,24 +513,9 @@ class Tidal(Plugin):
         seen: set[int] = set()
 
         for item in selected_items or []:
-            payload: Dict[str, Any] = {}
-            if isinstance(item, dict):
-                payload = item
-            else:
-                try:
-                    payload = item.to_dict() if hasattr(item, "to_dict") and callable(getattr(item, "to_dict")) else {}
-                except Exception:
-                    payload = {}
-                if not payload:
-                    try:
-                        payload = {
-                            "title": getattr(item, "title", None),
-                            "path": getattr(item, "path", None),
-                            "full_metadata": getattr(item, "full_metadata", None),
-                        }
-                    except Exception:
-                        payload = {}
+            from SYS.rich_display import result_payload
 
+            payload = result_payload(item)
             meta = payload.get("full_metadata") if isinstance(payload.get("full_metadata"), dict) else payload
             if not isinstance(meta, dict):
                 meta = {}
@@ -567,24 +552,9 @@ class Tidal(Plugin):
         seen_keys: set[str] = set()
 
         for item in selected_items or []:
-            payload: Dict[str, Any] = {}
-            if isinstance(item, dict):
-                payload = item
-            else:
-                try:
-                    payload = item.to_dict() if hasattr(item, "to_dict") and callable(getattr(item, "to_dict")) else {}
-                except Exception:
-                    payload = {}
-                if not payload:
-                    try:
-                        payload = {
-                            "title": getattr(item, "title", None),
-                            "path": getattr(item, "path", None),
-                            "full_metadata": getattr(item, "full_metadata", None),
-                        }
-                    except Exception:
-                        payload = {}
+            from SYS.rich_display import result_payload
 
+            payload = result_payload(item)
             meta = payload.get("full_metadata") if isinstance(payload.get("full_metadata"), dict) else payload
             if not isinstance(meta, dict):
                 meta = {}
@@ -962,9 +932,9 @@ class Tidal(Plugin):
             },
         )
 
-        from SYS.rich_display import add_result_rows, publish_result_table
+        from SYS.rich_display import add_result_rows, present_selector_table
 
-        publish_result_table(
+        present_selector_table(
             pipeline_context,
             table,
             add_result_rows(table, track_results, fallback_table="tidal.track"),
@@ -1424,7 +1394,7 @@ class Tidal(Plugin):
             materialized = self._ffmpeg_demux_to_audio(
                 input_ref=resolved_text,
                 output_path=out_file,
-                progress=self.config.get("_pipeline_progress") if isinstance(self.config, dict) else None,
+                progress=self.runtime_value("_pipeline_progress"),
                 transfer_label=title_part or getattr(result, "title", None),
                 duration_seconds=coerce_duration_seconds(md),
                 audio_quality=md.get("audioQuality") if isinstance(md, dict) else None,
@@ -1459,7 +1429,7 @@ class Tidal(Plugin):
             materialized = self._ffmpeg_demux_to_audio(
                 input_ref=str(source_path),
                 output_path=out_file,
-                progress=self.config.get("_pipeline_progress") if isinstance(self.config, dict) else None,
+                progress=self.runtime_value("_pipeline_progress"),
                 transfer_label=title_part or getattr(result, "title", None),
                 duration_seconds=coerce_duration_seconds(md),
                 audio_quality=md.get("audioQuality") if isinstance(md, dict) else None,
@@ -1484,7 +1454,7 @@ class Tidal(Plugin):
         materialized = self._ffmpeg_demux_to_audio(
             input_ref=resolved_text,
             output_path=out_file,
-            progress=self.config.get("_pipeline_progress") if isinstance(self.config, dict) else None,
+            progress=self.runtime_value("_pipeline_progress"),
             transfer_label=title_part or getattr(result, "title", None),
             duration_seconds=coerce_duration_seconds(md),
             audio_quality=md.get("audioQuality") if isinstance(md, dict) else None,
@@ -2026,30 +1996,9 @@ class Tidal(Plugin):
         contexts: List[Tuple[int, str, str]] = []
         seen_ids: set[int] = set()
         for item in selected_items or []:
-            payload: Dict[str, Any] = {}
-            if isinstance(item, dict):
-                payload = item
-            else:
-                try:
-                    payload = (
-                        item.to_dict()
-                        if hasattr(item, "to_dict")
-                        and callable(getattr(item, "to_dict"))
-                        else {}
-                    )
-                except Exception:
-                    payload = {}
-                if not payload:
-                    try:
-                        payload = {
-                            "title": getattr(item, "title", None),
-                            "path": getattr(item, "path", None),
-                            "url": getattr(item, "url", None),
-                            "full_metadata": getattr(item, "full_metadata", None),
-                        }
-                    except Exception:
-                        payload = {}
+            from SYS.rich_display import result_payload
 
+            payload = result_payload(item)
             meta = (
                 payload.get("full_metadata")
                 if isinstance(payload.get("full_metadata"), dict)
@@ -2215,9 +2164,9 @@ class Tidal(Plugin):
                 metadata={"plugin": "tidal", "view": "album", "artist_id": artist_id, "artist_name": artist_name},
             )
 
-            from SYS.rich_display import add_result_rows, publish_result_table
+            from SYS.rich_display import add_result_rows, present_selector_table
 
-            publish_result_table(
+            present_selector_table(
                 ctx,
                 table,
                 add_result_rows(table, album_results, fallback_table="tidal"),
@@ -2261,9 +2210,9 @@ class Tidal(Plugin):
                 },
             )
 
-            from SYS.rich_display import add_result_rows, publish_result_table
+            from SYS.rich_display import add_result_rows, present_selector_table
 
-            publish_result_table(
+            present_selector_table(
                 ctx,
                 table,
                 add_result_rows(table, track_results, fallback_table="tidal"),
@@ -2345,9 +2294,9 @@ class Tidal(Plugin):
             table.add_result(result)
             results_payload.append(result_payload(result, table="tidal.track"))
 
-        from SYS.rich_display import publish_result_table
+        from SYS.rich_display import present_selector_table
 
-        publish_result_table(ctx, table, results_payload)
+        present_selector_table(ctx, table, results_payload)
 
         return True
 

@@ -564,7 +564,7 @@ class Torrent(Plugin):
             return False
         files = engine.list_files(job_id) if job is not None else []
         try:
-            from SYS.rich_display import prepare_result_table, publish_result_table
+            from SYS.rich_display import prepare_result_table, present_selector_table
         except Exception:
             return True
         title = str((job.title if job is not None else None) or (item.get("title") if isinstance(item, dict) else "") or job_id)
@@ -599,7 +599,7 @@ class Torrent(Plugin):
             }
             table.add_result(payload)
             payloads.append(payload)
-        publish_result_table(
+        present_selector_table(
             ctx,
             table,
             payloads,
@@ -608,65 +608,17 @@ class Torrent(Plugin):
         return True
 
     def _downloader_mode(self) -> str:
-        bags: List[Dict[str, Any]] = []
-        try:
-            root = self.plugin_config_root()
-            if isinstance(root, dict) and root:
-                bags.append(root)
-                nested = root.get("default")
-                if isinstance(nested, dict):
-                    bags.append(nested)
-        except Exception:
-            pass
-        if isinstance(self.config, dict):
-            plugin_cfg = self.config.get("plugin")
-            if isinstance(plugin_cfg, dict):
-                entry = plugin_cfg.get("torrent") or plugin_cfg.get("Torrent")
-                if isinstance(entry, dict):
-                    bags.append(entry)
-        raw = ""
-        for bag in bags:
-            for key in ("downloader", "Downloader"):
-                val = str(bag.get(key) or "").strip()
-                if val:
-                    raw = val
-                    break
-            if raw:
-                break
-        mode = raw.lower()
+        mode = str(self.plugin_setting("downloader", default="") or "").strip().lower()
         if mode in {"libtorrent", "local", "internal", "bittorrent"}:
             return "libtorrent"
         return "alldebrid"
-
-    def _config_bag(self) -> Dict[str, Any]:
-        bags: List[Dict[str, Any]] = []
-        try:
-            root = self.plugin_config_root()
-            if isinstance(root, dict) and root:
-                bags.append(root)
-                nested = root.get("default")
-                if isinstance(nested, dict):
-                    bags.append(nested)
-        except Exception:
-            pass
-        if isinstance(self.config, dict):
-            plugin_cfg = self.config.get("plugin")
-            if isinstance(plugin_cfg, dict):
-                entry = plugin_cfg.get("torrent") or plugin_cfg.get("Torrent")
-                if isinstance(entry, dict):
-                    bags.append(entry)
-        merged: Dict[str, Any] = {}
-        for bag in reversed(bags):
-            merged.update(bag)
-        return merged
 
     def _storage_dirs(self) -> tuple[Path, Path]:
         from plugins.torrent.engine import default_dirs
 
         incomplete, complete, _state = default_dirs()
-        bag = self._config_bag()
-        inc = str(bag.get("incomplete_dir") or bag.get("Incomplete folder") or "").strip()
-        com = str(bag.get("complete_dir") or bag.get("Completed folder") or "").strip()
+        inc = str(self.plugin_setting("incomplete_dir", "Incomplete folder", default="") or "").strip()
+        com = str(self.plugin_setting("complete_dir", "Completed folder", default="") or "").strip()
         if inc:
             incomplete = Path(inc).expanduser()
         if com:
@@ -678,8 +630,10 @@ class Torrent(Plugin):
     def _auto_resume(self) -> bool:
         from SYS.utils import coerce_bool
 
-        bag = self._config_bag()
-        return coerce_bool(bag.get("auto_resume") or bag.get("Resume downloads on startup"), False)
+        return coerce_bool(
+            self.plugin_setting("auto_resume", "Resume downloads on startup", default=False),
+            False,
+        )
 
     @property
     def preserve_order(self) -> bool:

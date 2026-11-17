@@ -228,7 +228,9 @@ def _download_with_requests_session(
     response.raise_for_status()
 
     filename = _filename_from_response(url, response, suggested_filename=suggested_filename)
-    out_path = unique_path(Path(output_dir) / filename)
+    from SYS.utils import reserve_download_path
+
+    out_path = reserve_download_path(output_dir, filename)
 
     with open(out_path, "wb") as handle:
         for chunk in response.iter_content(chunk_size=1024 * 256):
@@ -944,8 +946,8 @@ class InternetArchiveOps:
             pipeline_progress = None
             try:
                 if isinstance(self.config, dict):
-                    quiet_mode = bool(self.config.get("_quiet_background_output"))
-                    pipeline_progress = self.config.get("_pipeline_progress")
+                    quiet_mode = bool(self.runtime_value("_quiet_background_output", False))
+                    pipeline_progress = self.runtime_value("_pipeline_progress")
             except Exception:
                 quiet_mode = False
                 pipeline_progress = None

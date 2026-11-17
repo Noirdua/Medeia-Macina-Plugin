@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from PluginCore.base import SearchResult
 from SYS.metadata import is_sidecar_filename, parse_sidecar_text
-from SYS.utils import format_byte_size
+from SYS.utils import format_bytes
 
 from ._connection import run_ssh_command
 from ._helpers import build_url, format_epoch, join_remote_path, normalize_remote_path
@@ -133,7 +133,7 @@ def build_result(
             ("Tag", ", ".join(tags[:8])),
             ("Instance", store_label),
             ("Plugin", "scp"),
-            ("Size", format_byte_size(size_int)),
+            ("Size", format_bytes(size_int)),
             ("Ext", ext),
         ],
         selection_args=None if is_dir else selection_args,

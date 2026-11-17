@@ -15,7 +15,7 @@ from SYS.metadata import build_sidecar_payloads, is_sidecar_filename, parse_side
 from SYS.utils import (
     coerce_bool as _coerce_bool,
     coerce_int as _coerce_int,
-    format_byte_size,
+    format_bytes,
     join_remote_path,
     normalize_remote_path,
     sanitize_filename,
@@ -322,7 +322,7 @@ class FTP(Plugin):
             self._close(ftp)
 
         try:
-            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
+            from SYS.rich_display import add_result_rows, prepare_result_table, present_selector_table
         except Exception:
             return True
 
@@ -345,7 +345,7 @@ class FTP(Plugin):
             source_args=source_args,
         )
 
-        publish_result_table(
+        present_selector_table(
             ctx,
             table,
             add_result_rows(table, rows, fallback_table="ftp"),
@@ -449,9 +449,9 @@ class FTP(Plugin):
         parsed_name = posixpath.basename(remote_path.rstrip("/"))
         filename = sanitize_filename(filename_hint or unquote(parsed_name) or "download")
 
-        destination_dir = Path(output_dir)
-        destination_dir.mkdir(parents=True, exist_ok=True)
-        destination = _unique_path(destination_dir / filename)
+        from SYS.utils import reserve_download_path
+
+        destination = reserve_download_path(output_dir, filename)
 
         ftp = self._connect(settings=settings)
         try:
@@ -938,7 +938,7 @@ class FTP(Plugin):
                 ("Tag", ", ".join(tags[:8])),
                 ("Instance", store_label),
                 ("Plugin", self.name),
-                ("Size", format_byte_size(size_int)),
+                ("Size", format_bytes(size_int)),
                 ("Ext", ext),
             ],
             selection_args=None if is_dir else selection_args,

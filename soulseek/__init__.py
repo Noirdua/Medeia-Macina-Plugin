@@ -885,13 +885,11 @@ async def download_soulseek_file(
         if output_dir is None:
             output_dir = default_staging_dir() / "soulseek"
 
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        from SYS.utils import reserve_download_path
 
         local_filename = sanitize_filename(filename.replace("\\", "/").split("/")[-1])
-        output_user_dir = output_dir / sanitize_filename(username, fallback="peer")
-        output_user_dir.mkdir(parents=True, exist_ok=True)
-        output_path = unique_path(output_user_dir / local_filename)
+        output_user_dir = Path(output_dir) / sanitize_filename(username, fallback="peer")
+        output_path = reserve_download_path(output_user_dir, local_filename)
 
         output_path = output_path.resolve()
 

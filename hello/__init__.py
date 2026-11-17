@@ -75,14 +75,13 @@ class Hello(Plugin):
         This keeps the example self-contained (no network access required) and
         makes it straightforward to test provider behavior with `pytest`.
         """
-        from SYS.utils import ensure_directory, sanitize_filename, unique_path
+        from SYS.utils import reserve_download_path, sanitize_filename
 
-        ensure_directory(Path(output_dir))
         title = str(getattr(result, "title", "hello") or "hello").strip()
         safe = sanitize_filename(title, fallback="hello")
         if not safe.lower().endswith(".txt"):
             safe = f"{safe}.txt"
-        dest = unique_path(Path(output_dir) / safe)
+        dest = reserve_download_path(output_dir, safe, fallback="hello.txt")
         try:
             dest.write_text(f"Hello from Hello\nsource: {result.path}\n", encoding="utf-8")
             return dest
@@ -106,33 +105,11 @@ class Hello(Plugin):
         if not stage_is_last:
             return False
 
-        def _as_payload(item: Any) -> Dict[str, Any]:
-            if isinstance(item, dict):
-                return dict(item)
-            try:
-                if hasattr(item, "to_dict"):
-                    maybe = item.to_dict()
-                    if isinstance(maybe, dict):
-                        return maybe
-            except Exception:
-                pass
-            payload: Dict[str, Any] = {}
-            try:
-                payload = {
-                    "title": getattr(item, "title", None),
-                    "path": getattr(item, "path", None),
-                    "table": getattr(item, "table", None),
-                    "annotations": getattr(item, "annotations", None),
-                    "media_kind": getattr(item, "media_kind", None),
-                    "full_metadata": getattr(item, "full_metadata", None),
-                }
-            except Exception:
-                payload = {}
-            return payload
+        from SYS.rich_display import result_payload
 
         chosen: List[Dict[str, Any]] = []
         for item in selected_items or []:
-            payload = _as_payload(item)
+            payload = result_payload(item)
             meta = payload.get("full_metadata") or {}
             if not isinstance(meta, dict):
                 meta = {}
@@ -150,7 +127,7 @@ class Hello(Plugin):
         title = target.get("title") or f"hello-{idx}"
 
         try:
-            from SYS.rich_display import prepare_result_table, publish_result_table, result_payload
+            from SYS.rich_display import prepare_result_table, present_selector_table, result_payload
         except Exception:
             # If ResultTable isn't available, consider selection handled
             return True
@@ -178,6 +155,6 @@ class Hello(Plugin):
             table.add_result(sr)
             results_payload.append(result_payload(sr, table="hello"))
 
-        publish_result_table(ctx, table, results_payload)
+        present_selector_table(ctx, table, results_payload)
 
         return True

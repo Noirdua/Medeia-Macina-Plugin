@@ -363,7 +363,7 @@ class SCP(Plugin):
             self._close_client(ssh)
 
         try:
-            from SYS.rich_display import add_result_rows, prepare_result_table, publish_result_table
+            from SYS.rich_display import add_result_rows, prepare_result_table, present_selector_table
         except Exception:
             return True
 
@@ -386,7 +386,7 @@ class SCP(Plugin):
             source_args=source_args,
         )
 
-        publish_result_table(
+        present_selector_table(
             ctx,
             table,
             add_result_rows(table, rows, fallback_table="scp"),
@@ -490,9 +490,9 @@ class SCP(Plugin):
         parsed_name = posixpath.basename(remote_path.rstrip("/"))
         filename = sanitize_filename(filename_hint or unquote(parsed_name) or "download")
 
-        destination_dir = Path(output_dir)
-        destination_dir.mkdir(parents=True, exist_ok=True)
-        destination = unique_path(destination_dir / filename)
+        from SYS.utils import reserve_download_path
+
+        destination = reserve_download_path(output_dir, filename)
 
         ssh = self._connect_ssh(settings)
         scp_client = None

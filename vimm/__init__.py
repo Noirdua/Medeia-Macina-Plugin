@@ -766,8 +766,9 @@ class Vimm(TablePluginMixin, Plugin):
                 cd = getattr(resp, "headers", {}).get("content-disposition", "") if hasattr(resp, "headers") else ""
                 fname = filename_from_content_disposition(cd) or filename_hint
 
-                out_path = unique_path(out_dir / sanitize_filename(fname or filename_hint or "download"))
-                out_path.parent.mkdir(parents=True, exist_ok=True)
+                from SYS.utils import reserve_download_path
+
+                out_path = reserve_download_path(out_dir, fname or filename_hint or "download")
                 out_path.write_bytes(content)
                 return out_path
         except Exception as exc:
