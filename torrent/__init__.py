@@ -33,6 +33,7 @@ class TorrentInfo:
     category: Optional[str] = None
     uploader: Optional[str] = None
     magnet: Optional[str] = None
+    torrent_id: Optional[str] = None
 
 
 @dataclass
@@ -65,6 +66,9 @@ class Scraper:
             )
         }
         self.params: Optional[SearchParams] = None
+
+    def accepts_category(self, category: Optional[str]) -> bool:
+        return not category
 
     def find(self, params: SearchParams, pages: int = 1) -> List[TorrentInfo]:
         self.params = params
@@ -118,6 +122,9 @@ class Scraper:
 class NyaaScraper(Scraper):
     def __init__(self) -> None:
         super().__init__("nyaa.si", "https://nyaa.si")
+
+    def accepts_category(self, category: Optional[str]) -> bool:
+        return not category or category == "anime"
 
     def _request_data(self, page: int) -> tuple[str, Dict[str, Any]]:
         params = self.params or SearchParams(name="")
@@ -271,6 +278,108 @@ class X1337Scraper(Scraper):
         return links[0] if links else None
 
 
+_1337_CATEGORIES = (
+    "movies",
+    "tv",
+    "games",
+    "music",
+    "apps",
+    "anime",
+    "documentaries",
+    "other",
+    "xxx",
+)
+_CATEGORY_ALIASES = {
+    "movie": "movies",
+    "movies": "movies",
+    "film": "movies",
+    "films": "movies",
+    "tv": "tv",
+    "television": "tv",
+    "show": "tv",
+    "shows": "tv",
+    "game": "games",
+    "games": "games",
+    "music": "music",
+    "audio": "music",
+    "app": "apps",
+    "apps": "apps",
+    "application": "apps",
+    "applications": "apps",
+    "software": "apps",
+    "anime": "anime",
+    "documentary": "documentaries",
+    "documentaries": "documentaries",
+    "xxx": "xxx",
+    "adult": "xxx",
+    "other": "other",
+}
+
+
+def _normalize_category(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return _CATEGORY_ALIASES.get(text, text)
+
+
+class Py1337xScraper(Scraper):
+    """1337x search through the py1337x client, not a separate plugin."""
+
+    def __init__(self) -> None:
+        super().__init__("1337x.to", "https://1337x.to")
+
+    def accepts_category(self, category: Optional[str]) -> bool:
+        if not category:
+            return True
+        return category in _1337_CATEGORIES
+
+    def find(self, params: SearchParams, pages: int = 1) -> List[TorrentInfo]:
+        try:
+            from py1337x import Py1337x
+        except Exception as exc:
+            debug(f"[1337x.to] py1337x unavailable: {exc}")
+            return []
+        client = Py1337x()
+        categories = [params.category] if params.category else [
+            name for name in _1337_CATEGORIES if name != "xxx"
+        ]
+        results: List[TorrentInfo] = []
+        seen: set[str] = set()
+        for category in categories:
+            for page in range(1, max(1, pages) + 1):
+                try:
+                    data = client.search(
+                        params.name,
+                        page=page,
+                        category=category,
+                        sort_by="seeders",
+                        order="desc" if not params.order_ascending else "asc",
+                    )
+                except Exception as exc:
+                    debug(f"[1337x.to] {category} page {page} failed: {exc}")
+                    continue
+                for item in getattr(data, "items", None) or []:
+                    torrent_id = str(getattr(item, "torrent_id", "") or "").strip()
+                    url = str(getattr(item, "url", "") or "").strip()
+                    key = torrent_id or url
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    results.append(
+                        TorrentInfo(
+                            name=str(getattr(item, "name", "") or "").strip(),
+                            url=url,
+                            seeders=self._int_from_text(getattr(item, "seeders", 0)),
+                            leechers=self._int_from_text(getattr(item, "leechers", 0)),
+                            size=str(getattr(item, "size", "") or "").strip(),
+                            source=self.name,
+                            category=category,
+                            uploader=str(getattr(item, "uploader", "") or "").strip() or None,
+                            torrent_id=torrent_id or None,
+                        )
+                    )
+        return results
+
+
 class YTSScraper(Scraper):
     TRACKERS = "&tr=".join(
         [
@@ -288,6 +397,9 @@ class YTSScraper(Scraper):
     def __init__(self) -> None:
         super().__init__("yts.mx", self.API_BASES[0])
         self.headers = {}
+
+    def accepts_category(self, category: Optional[str]) -> bool:
+        return not category or category == "movies"
 
     def _get_page(self, page: int) -> List[TorrentInfo]:
         params = self.params or SearchParams(name="")
@@ -433,7 +545,13 @@ class Torrent(Plugin):
     PLUGIN_VERSION = "1.0.0"
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = "Torrent site search and BitTorrent download (The Pirate Bay, YTS, Nyaa, 1337x)."
-    PLUGIN_REQUIRES = ("libtorrent",)
+    PLUGIN_REQUIRES = ("libtorrent", "1337x")
+    QUERY_ARG_CHOICES = {
+        "category": ["movies", "tv", "games", "music", "apps", "anime", "documentaries", "other", "xxx"],
+        "cat": ["movies", "tv", "games", "music", "apps", "anime", "documentaries", "other", "xxx"],
+        "source": ["1337x", "nyaa", "yts", "apibay"],
+        "site": ["1337x", "nyaa", "yts", "apibay"],
+    }
     TABLE_AUTO_STAGES = {"torrent": ["download-file"]}
     SUPPORTED_CMDLETS = frozenset({"search-file", "download-file"})
     prefers_transfer_progress = True
@@ -643,14 +761,17 @@ class Torrent(Plugin):
         super().__init__(config)
         self.scrapers: List[Scraper] = []
         # JSON APIs (no lxml dependency)
+        self.scrapers.append(Py1337xScraper())
         self.scrapers.append(ApiBayScraper())
         self.scrapers.append(YTSScraper())
-        # HTML scrapers require lxml
         if lxml_html is not None:
             self.scrapers.append(NyaaScraper())
-            self.scrapers.append(X1337Scraper())
+            try:
+                import py1337x  # noqa: F401
+            except Exception:
+                self.scrapers.append(X1337Scraper())
         else:
-            log("[torrent] lxml not installed; skipping Nyaa/1337x scrapers", file=None)
+            log("[torrent] lxml not installed; skipping Nyaa scraper", file=None)
 
     def validate(self) -> bool:
         return bool(self.scrapers)
@@ -666,10 +787,23 @@ class Torrent(Plugin):
         if not q:
             return []
 
-        params = SearchParams(name=q, order_column="seeders", order_ascending=False)
+        filters = filters or {}
+        category = _normalize_category(filters.get("category") or filters.get("cat"))
+        source = str(filters.get("source") or filters.get("site") or "").strip().lower()
+        params = SearchParams(
+            name=q,
+            category=category or None,
+            order_column="seeders",
+            order_ascending=False,
+        )
         results: List[TorrentInfo] = []
 
         for scraper in self.scrapers:
+            if source and source not in scraper.name.lower() and source not in scraper.name.replace(".", ""):
+                if not (source in {"1337x", "1337"} and "1337x" in scraper.name):
+                    continue
+            if not scraper.accepts_category(category or None):
+                continue
             try:
                 scraped = scraper.find(params, pages=1)
                 results.extend(scraped)
@@ -690,6 +824,7 @@ class Torrent(Plugin):
                 ("Leechers", str(item.leechers)),
                 ("Size", item.size or ""),
                 ("Source", item.source),
+                ("Category", item.category or ""),
             ]
             if item.uploader:
                 columns.append(("Uploader", item.uploader))
@@ -701,6 +836,8 @@ class Torrent(Plugin):
                 "seeders": item.seeders,
                 "leechers": item.leechers,
                 "size": item.size,
+                "category": item.category,
+                "torrent_id": item.torrent_id,
             }
             if item.uploader:
                 md["uploader"] = item.uploader
@@ -743,11 +880,42 @@ class Torrent(Plugin):
         sep = "&" if "?" in text else "?"
         return f"{text}{sep}{extra}"
 
+    def _ensure_magnet(self, result: SearchResult) -> str:
+        magnet = self._with_trackers(self._magnet_from_result(result))
+        if magnet:
+            return magnet
+        md = getattr(result, "full_metadata", None)
+        if not isinstance(md, dict):
+            return ""
+        source = str(md.get("source") or "")
+        torrent_id = str(md.get("torrent_id") or "").strip()
+        url = str(md.get("url") or getattr(result, "path", "") or "").strip()
+        if "1337x" not in source and "1337x" not in url and not torrent_id:
+            return ""
+        try:
+            from py1337x import Py1337x
+        except Exception:
+            return ""
+        try:
+            info = Py1337x().info(torrent_id=torrent_id) if torrent_id else Py1337x().info(link=url)
+        except Exception as exc:
+            debug(f"[1337x.to] info failed: {exc}")
+            return ""
+        magnet = self._with_trackers(str(getattr(info, "magnet_link", "") or ""))
+        if not magnet.lower().startswith("magnet:"):
+            return ""
+        md["magnet"] = magnet
+        try:
+            result.path = magnet
+        except Exception:
+            pass
+        return magnet
+
     def download(self, result: SearchResult, output_dir: Path) -> Optional[Path]:
         self._libtorrent_queued = False
+        magnet = self._ensure_magnet(result)
         if self._downloader_mode() != "libtorrent":
             return None
-        magnet = self._with_trackers(self._magnet_from_result(result))
         if not magnet:
             return None
         title = str(getattr(result, "title", "") or "torrent").strip() or "torrent"
