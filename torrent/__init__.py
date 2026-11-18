@@ -324,8 +324,15 @@ def _normalize_category(value: Any) -> str:
 class Py1337xScraper(Scraper):
     """1337x search through the py1337x client, not a separate plugin."""
 
+    MIRRORS = (
+        "https://1337x.to",
+        "https://www.1337x.to",
+        "https://1337x.st",
+        "https://1337xx.to",
+    )
+
     def __init__(self) -> None:
-        super().__init__("1337x.to", "https://1337x.to")
+        super().__init__("1337x.to", self.MIRRORS[0])
 
     def accepts_category(self, category: Optional[str]) -> bool:
         if not category:
@@ -338,25 +345,38 @@ class Py1337xScraper(Scraper):
         except Exception as exc:
             debug(f"[1337x.to] py1337x unavailable: {exc}")
             return []
-        client = Py1337x()
         categories = [params.category] if params.category else [
             name for name in _1337_CATEGORIES if name != "xxx"
         ]
         results: List[TorrentInfo] = []
         seen: set[str] = set()
-        for category in categories:
-            for page in range(1, max(1, pages) + 1):
-                try:
-                    data = client.search(
-                        params.name,
-                        page=page,
-                        category=category,
-                        sort_by="seeders",
-                        order="desc" if not params.order_ascending else "asc",
-                    )
-                except Exception as exc:
-                    debug(f"[1337x.to] {category} page {page} failed: {exc}")
+        blocked = False
+        for base in self.MIRRORS:
+            try:
+                client = Py1337x(base_url=base)
+                probe = client.requests.get(base, timeout=20)
+                text = str(getattr(probe, "text", "") or "")
+                if getattr(probe, "status_code", 0) == 403 or "Just a moment" in text:
+                    blocked = True
                     continue
+                blocked = False
+                self.base = base
+            except Exception as exc:
+                debug(f"[1337x.to] mirror {base} failed: {exc}")
+                continue
+            for category in categories:
+                for page in range(1, max(1, pages) + 1):
+                    try:
+                        data = client.search(
+                            params.name,
+                            page=page,
+                            category=category,
+                            sort_by="seeders",
+                            order="desc" if not params.order_ascending else "asc",
+                        )
+                    except Exception as exc:
+                        debug(f"[1337x.to] {category} page {page} failed: {exc}")
+                        continue
                 for item in getattr(data, "items", None) or []:
                     torrent_id = str(getattr(item, "torrent_id", "") or "").strip()
                     url = str(getattr(item, "url", "") or "").strip()
@@ -377,6 +397,10 @@ class Py1337xScraper(Scraper):
                             torrent_id=torrent_id or None,
                         )
                     )
+            if results:
+                break
+        if not results and blocked:
+            log("[torrent] 1337x is blocked by Cloudflare from this machine.", file=sys.stderr)
         return results
 
 
@@ -542,7 +566,7 @@ class ApiBayScraper(Scraper):
 
 class Torrent(Plugin):
     PLUGIN_NAME = "torrent"
-    PLUGIN_VERSION = "1.0.0"
+    PLUGIN_VERSION = "1.1.0"
     PLUGIN_AUTHOR = "Medeia"
     PLUGIN_DESCRIPTION = "Torrent site search and BitTorrent download (The Pirate Bay, YTS, Nyaa, 1337x)."
     PLUGIN_REQUIRES = ("libtorrent", "1337x")
@@ -806,9 +830,10 @@ class Torrent(Plugin):
                 continue
             try:
                 scraped = scraper.find(params, pages=1)
+                log(f"[torrent] {scraper.name}: {len(scraped)} result(s)")
                 results.extend(scraped)
             except Exception as exc:
-                debug(f"[torrent] scraper {scraper.name} failed: {exc}")
+                log(f"[torrent] {scraper.name} failed: {exc}", file=sys.stderr)
                 continue
 
         results = sorted(results, key=lambda r: r.seeders, reverse=True)
