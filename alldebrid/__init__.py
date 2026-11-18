@@ -594,7 +594,7 @@ def adjust_output_dir_for_alldebrid(
     full_metadata: Optional[Dict[str, Any]],
     item: Any,
 ) -> Path:
-    from SYS.utils import sanitize_filename as _sf
+    from SYS.utils import display_folder_name, sanitize_filename as _sf
 
     output_dir = base_output_dir
     md = full_metadata if isinstance(full_metadata, dict) else {}
@@ -608,7 +608,8 @@ def adjust_output_dir_for_alldebrid(
         except Exception:
             magnet_name = None
 
-    magnet_dir_name = _sf(str(magnet_name)) if magnet_name else ""
+    raw_magnet_name = str(magnet_name or "").strip()
+    magnet_dir_name = display_folder_name(raw_magnet_name) if raw_magnet_name else ""
     try:
         base_tail = str(Path(output_dir).name or "")
     except Exception:
@@ -627,7 +628,9 @@ def adjust_output_dir_for_alldebrid(
         parts = [p for p in str(relpath).replace("\\", "/").split("/") if p and p not in {".", ".."}]
         if magnet_dir_name and parts:
             try:
-                if _sf(parts[0]).lower() == magnet_dir_norm:
+                first = _sf(parts[0]).lower()
+                raw_first = _sf(raw_magnet_name).lower()
+                if first in {magnet_dir_norm, raw_first}:
                     parts = parts[1:]
             except Exception:
                 pass

@@ -573,7 +573,9 @@ class Local(Plugin):
 
             export_root = destination_root
             if folder_name and not direct_export_download:
-                export_root = destination_root / sanitize_filename(folder_name)
+                from SYS.utils import display_folder_name
+
+                export_root = destination_root / display_folder_name(folder_name)
                 if create_dirs:
                     export_root.mkdir(parents=True, exist_ok=True)
                 elif not export_root.is_dir():
