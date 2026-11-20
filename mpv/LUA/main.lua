@@ -2558,6 +2558,10 @@ local function _is_image_path(path)
 end
 
 local function _get_current_item_is_image()
+    local path = mp.get_property('path') or ''
+    if M._path_is_splash and M._path_is_splash(path) then
+        return false
+    end
     local video_info = mp.get_property_native('current-tracks/video')
     if type(video_info) == 'table' then
         if video_info.image == true then
@@ -3654,6 +3658,15 @@ end)
 
 mp.register_event('file-loaded', function()
     _update_image_mode()
+    local path = mp.get_property('path') or ''
+    if M._path_is_splash and M._path_is_splash(path) then
+        _disable_image_section()
+        M._reset_uosc_input_state('splash-loaded')
+        M._schedule_uosc_cursor_resync('splash-loaded')
+        mp.add_timeout(0.20, function()
+            M._reset_uosc_input_state('splash-loaded@0.20')
+        end)
+    end
     pcall(M._force_os_cursor_visible, 'file-loaded')
     if not _get_current_item_is_image() then
         M._schedule_uosc_cursor_resync('file-loaded')

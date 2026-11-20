@@ -138,6 +138,19 @@ def _to_seconds(ts: str) -> Optional[int]:
         return None
 
 
+def _unique_text(values: Sequence[str]) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        key = text.lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
+
+
 def _parse_time_ranges(spec: str) -> List[tuple[int, int]]:
     ranges: List[tuple[int, int]] = []
     if not spec:
@@ -153,7 +166,14 @@ def _parse_time_ranges(spec: str) -> List[tuple[int, int]]:
         if start is None or end is None or start >= end:
             return []
         ranges.append((start, end))
-    return ranges
+    unique: List[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for item in ranges:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return unique
 
 
 def _build_clip_sections_spec(clip_ranges: Optional[List[tuple[int, int]]]) -> Optional[str]:
@@ -1210,6 +1230,8 @@ class ytdlp(TablePluginMixin, Plugin):
         if query_keyed:
             clip_values.extend(query_keyed.get("clip", []) or [])
             item_values.extend(query_keyed.get("item", []) or [])
+        clip_values = _unique_text(clip_values)
+        item_values = _unique_text(item_values)
 
         if item_values and not parsed.get("item"):
             parsed["item"] = ",".join([v for v in item_values if v])
@@ -1389,8 +1411,8 @@ class ytdlp(TablePluginMixin, Plugin):
                     playlist_items=actual_playlist_items,
                     quiet=quiet_mode,
                     no_playlist=False,
-                    embed_chapters=True,
-                    write_sub=True,
+                    embed_chapters=not bool(clip_sections_spec),
+                    write_sub=not bool(clip_sections_spec),
                 )
                 result_obj = _download_with_timeout(opts, timeout_seconds=timeout_seconds, config=self.config)
                 break

@@ -1965,7 +1965,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             runtime_root = _runtime_config_root()
             _append_helper_log(
-                f"[helper] config_root={runtime_root} exists={bool((runtime_root / 'config.conf').exists())}"
+                f"[helper] config_root={runtime_root} config.conf={bool((runtime_root / 'config.conf').exists())}"
             )
         except Exception:
             pass
@@ -2020,7 +2020,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     request_processing_lock = threading.Lock()
     command_client_lock = threading.Lock()
     stop_event = threading.Event()
-    ipc_loss_grace_seconds = 4.0
+    ipc_loss_grace_seconds = 12.0
     ipc_lost_since: Optional[float] = None
     ipc_connected_once = False
     shutdown_reason = ""
@@ -2582,7 +2582,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             msg = client.read_message(timeout=0.25)
             if msg is None:
                 if client.sock is None:
-                    _note_ipc_unavailable("main-read")
+                    try:
+                        reconnected = bool(client.connect())
+                    except Exception:
+                        reconnected = False
+                    if reconnected:
+                        _mark_ipc_alive("main-reconnect")
+                    else:
+                        _note_ipc_unavailable("main-read")
                 else:
                     _mark_ipc_alive("main-idle")
                 # Keep READY fresh even when idle (Lua may clear it on timeouts).

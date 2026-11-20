@@ -96,7 +96,7 @@ def _windows_pipe_bytes_available(pipe: BinaryIO) -> Optional[int]:
         if not ok:
             err = int(ctypes.get_last_error() or 0)
             # 6 INVALID_HANDLE, 109 BROKEN_PIPE, 233 PIPE_NOT_CONNECTED
-            if err in {6, 109, 233}:
+            if err in {6, 109}:
                 return None
             return 0
         return int(total_available.value)

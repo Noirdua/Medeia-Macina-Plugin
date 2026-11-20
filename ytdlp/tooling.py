@@ -1571,6 +1571,14 @@ class YtDlpTool:
                     continue
 
             if sections:
+                unique_sections: List[str] = []
+                seen_sections: set[str] = set()
+                for section in sections:
+                    if section in seen_sections:
+                        continue
+                    seen_sections.add(section)
+                    unique_sections.append(section)
+                sections = unique_sections
                 base_options["download_sections"] = sections
                 # Clipped outputs should begin with a keyframe; otherwise players (notably mpv)
                 # can show audio before video or a black screen until the next keyframe.
